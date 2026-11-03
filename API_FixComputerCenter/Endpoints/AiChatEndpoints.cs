@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Security.Claims;
+using API_FixComputerCenter.Application.Common.Interfaces;
 using API_FixComputerCenter.Application.Features.AiChat;
 using API_FixComputerCenter.Application.Features.Knowledge;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 
 namespace API_FixComputerCenter.Endpoints;
 
@@ -40,6 +42,20 @@ public static class AiChatEndpoints
 
         // 2. ADMIN KNOWLEDGE BASE ENDPOINTS
         var kbGroup = app.MapGroup("/api/v1/admin/knowledge").WithTags("KnowledgeBase");
+
+        kbGroup.MapGet("/status", async (ITechCareDbContext db, IAiChatCompletionService aiComp) =>
+        {
+            var totalDocs = await db.KnowledgeDocuments.CountAsync(d => d.Status == "ACTIVE");
+            var totalChunks = await db.KnowledgeChunks.CountAsync(c => c.Document != null && c.Document.Status == "ACTIVE");
+            return Results.Ok(new
+            {
+                hasApiKey = aiComp.HasApiKey,
+                mode = aiComp.HasApiKey ? "LLM" : "EXTRACTIVE",
+                model = aiComp.ModelName,
+                totalDocuments = totalDocs,
+                totalChunks = totalChunks
+            });
+        }).RequireAuthorization("Permission:AI.KB.MANAGE");
 
         kbGroup.MapPost("/documents", async (CreateDocumentRequest req, IKnowledgeService svc) =>
         {

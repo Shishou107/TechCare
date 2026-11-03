@@ -60,6 +60,7 @@ public static class DependencyInjection
         services.AddScoped<IShippingService, ShippingService>();
         services.AddHostedService<ShipmentStatusSyncService>();
         services.AddScoped<IEmbeddingService, EmbeddingService>();
+        services.AddScoped<IAiChatCompletionService, OpenAICompatibleChatCompletionService>();
         services.AddScoped<IKnowledgeService, KnowledgeService>();
         services.AddScoped<IAiChatService, AiChatService>();
 

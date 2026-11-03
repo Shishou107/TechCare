@@ -10,6 +10,14 @@ interface KnowledgeDoc {
   createdAtUtc: string
 }
 
+interface KnowledgeStatus {
+  hasApiKey: boolean
+  mode: 'LLM' | 'EXTRACTIVE'
+  model: string
+  totalDocuments: number
+  totalChunks: number
+}
+
 export function KnowledgeAdmin() {
   const [docs, setDocs] = useState<KnowledgeDoc[]>([])
   const [loading, setLoading] = useState(false)
@@ -17,18 +25,29 @@ export function KnowledgeAdmin() {
   const [form, setForm] = useState({ title: '', category: 'BẢNG GIÁ', rawContent: '' })
   const [submitting, setSubmitting] = useState(false)
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null)
+  const [aiStatus, setAiStatus] = useState<KnowledgeStatus | null>(null)
 
   const token = localStorage.getItem('tc_token')
 
   const fetchDocs = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/admin/knowledge/documents`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const [res, statusRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/v1/admin/knowledge/documents`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${API_BASE_URL}/api/v1/admin/knowledge/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      ])
+
       if (res.ok) {
         const data = await res.json()
         setDocs(data)
+      }
+      if (statusRes.ok) {
+        const s = await statusRes.json()
+        setAiStatus(s)
       }
     } catch (e) {
       console.error(e)
@@ -94,7 +113,26 @@ export function KnowledgeAdmin() {
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <div className="eyebrow">QUẢN TRỊ TRI THỨC AI (RAG)</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px', flexWrap: 'wrap' }}>
+            <div className="eyebrow" style={{ margin: 0 }}>QUẢN TRỊ TRI THỨC AI (RAG)</div>
+            {aiStatus && (
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  padding: '3px 8px',
+                  borderRadius: '4px',
+                  background: aiStatus.mode === 'LLM' ? '#111111' : '#f4f4f2',
+                  color: aiStatus.mode === 'LLM' ? '#ffffff' : '#555555',
+                  border: '1px solid ' + (aiStatus.mode === 'LLM' ? '#111111' : '#e4e4e0'),
+                }}
+              >
+                {aiStatus.mode === 'LLM'
+                  ? `Đang chạy mô hình LLM (${aiStatus.model})`
+                  : 'Đang chạy chế độ trích xuất nội bộ (chưa cấu hình API key)'}
+              </span>
+            )}
+          </div>
           <h2 style={{ fontSize: '26px', fontWeight: 600, color: 'var(--ink)' }}>Cơ sở dữ liệu Tri thức Chatbot</h2>
           <p style={{ color: 'var(--sub)', fontSize: '13.5px', marginTop: '4px' }}>
             Tài liệu nạp vào đây sẽ tự động phân mảnh (~600 từ, trượt 80 từ) và sinh Vector Embedding phục vụ trả lời khách hàng.

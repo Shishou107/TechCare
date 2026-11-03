@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Infrastructure\Shipping\vn-location-coords.json">
+    <Content Update="Infrastructure\Shipping\vn-location-coords.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
