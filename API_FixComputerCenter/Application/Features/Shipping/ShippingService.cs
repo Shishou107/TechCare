@@ -1,3 +1,4 @@
+using API_FixComputerCenter.Infrastructure.Shipping;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -32,6 +33,10 @@ public class ShipmentTrackingDto
     public string StatusName { get; set; } = "Đã tạo vận đơn";
     public decimal? FeeAmount { get; set; }
     public DateTime? ExpectedDeliveryAtUtc { get; set; }
+    public decimal? SenderLatitude { get; set; }
+    public decimal? SenderLongitude { get; set; }
+    public decimal? ReceiverLatitude { get; set; }
+    public decimal? ReceiverLongitude { get; set; }
     public List<ShipmentEventDto> Events { get; set; } = new();
 }
 
@@ -61,15 +66,21 @@ public class ShippingService : IShippingService
     private readonly ITechCareDbContext _db;
     private readonly IShippingProvider _provider;
     private readonly ILogger<ShippingService> _logger;
+    private readonly IConfiguration _config;
+    private readonly HttpClient _http;
 
     public ShippingService(
         ITechCareDbContext db,
         IShippingProvider provider,
-        ILogger<ShippingService> logger)
+        ILogger<ShippingService> logger,
+        IConfiguration config,
+        IHttpClientFactory httpFactory)
     {
         _db = db;
         _provider = provider;
         _logger = logger;
+        _config = config;
+        _http = httpFactory.CreateClient();
     }
 
     public Task<ShippingFeePreviewResult> PreviewFeeAsync(ShippingFeePreviewRequest request, CancellationToken ct = default)
@@ -108,6 +119,17 @@ public class ShippingService : IShippingService
             return providerResult;
         }
 
+        // Determine branch and customer coordinates
+        var branchLat = _config.GetValue<decimal?>("Shipping:BranchLatitude") ?? 21.0280m;
+        var branchLng = _config.GetValue<decimal?>("Shipping:BranchLongitude") ?? 105.8540m;
+        bool isInbound = string.Equals(request.Direction, "INBOUND", StringComparison.OrdinalIgnoreCase);
+        string customerAddress = isInbound ? request.SenderAddress : request.ReceiverAddress;
+        var customerCoords = await VnLocationCoordsLookup.GeocodeAddressAsync(_http, customerAddress, ct);
+        decimal? senderLat = isInbound ? customerCoords.Lat : branchLat;
+        decimal? senderLng = isInbound ? customerCoords.Lng : branchLng;
+        decimal? receiverLat = isInbound ? branchLat : customerCoords.Lat;
+        decimal? receiverLng = isInbound ? branchLng : customerCoords.Lng;
+
         // 3. Persist to Shipping.Shipments
         var shipment = new Shipment
         {
@@ -138,7 +160,11 @@ public class ShippingService : IShippingService
             CreatedByUserId = createdByUserId,
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow,
-            RawCreateResponseJson = providerResult.RawResponse
+            RawCreateResponseJson = providerResult.RawResponse,
+            SenderLatitude = senderLat,
+            SenderLongitude = senderLng,
+            ReceiverLatitude = receiverLat,
+            ReceiverLongitude = receiverLng
         };
 
         _db.Shipments.Add(shipment);
@@ -152,6 +178,8 @@ public class ShippingService : IShippingService
             InternalStatus = "CREATED",
             Description = "Vận đơn điện tử đã được tạo thành công",
             LocationText = request.SenderAddress,
+            Latitude = senderLat ?? VnLocationCoordsLookup.Lookup(request.SenderAddress).Lat,
+            Longitude = senderLng ?? VnLocationCoordsLookup.Lookup(request.SenderAddress).Lng,
             OccurredAtUtc = DateTime.UtcNow,
             ReceivedAtUtc = DateTime.UtcNow
         };
@@ -255,27 +283,9 @@ public class ShippingService : IShippingService
 
         if (!alreadyExists)
         {
-            // Extract approximate coordinates if warehouse location matches major hubs
-            decimal? lat = null;
-            decimal? lng = null;
-            if (payload.Warehouse != null)
-            {
-                if (payload.Warehouse.Contains("Hà Nội", StringComparison.OrdinalIgnoreCase) || payload.Warehouse.Contains("Cầu Giấy", StringComparison.OrdinalIgnoreCase))
-                {
-                    lat = 21.0333m;
-                    lng = 105.7833m;
-                }
-                else if (payload.Warehouse.Contains("Đà Nẵng", StringComparison.OrdinalIgnoreCase))
-                {
-                    lat = 16.0544m;
-                    lng = 108.2022m;
-                }
-                else if (payload.Warehouse.Contains("Hồ Chí Minh", StringComparison.OrdinalIgnoreCase) || payload.Warehouse.Contains("Tân Bình", StringComparison.OrdinalIgnoreCase))
-                {
-                    lat = 10.8231m;
-                    lng = 106.6297m;
-                }
-            }
+            var eventCoords = VnLocationCoordsLookup.Lookup(payload.Warehouse ?? payload.Description);
+            decimal? lat = eventCoords.Lat;
+            decimal? lng = eventCoords.Lng;
 
             var evt = new ShipmentEvent
             {
@@ -338,6 +348,10 @@ public class ShippingService : IShippingService
             StatusName = GetStatusDescription(shipment.StatusCode),
             FeeAmount = shipment.FeeAmount,
             ExpectedDeliveryAtUtc = shipment.ExpectedDeliveryAtUtc,
+            SenderLatitude = shipment.SenderLatitude,
+            SenderLongitude = shipment.SenderLongitude,
+            ReceiverLatitude = shipment.ReceiverLatitude,
+            ReceiverLongitude = shipment.ReceiverLongitude,
             Events = shipment.Events.Select(e => new ShipmentEventDto
             {
                 ProviderStatus = e.ProviderStatus,

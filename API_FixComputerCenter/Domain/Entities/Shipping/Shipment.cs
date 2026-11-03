@@ -37,6 +37,11 @@ public class Shipment
     public string StatusCode { get; set; } = "CREATED";
     // Statuses: CREATED, PICKING, PICKED, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, DELIVERY_FAILED, RETURNING, RETURNED, CANCELLED, EXCEPTION
     
+    public decimal? SenderLatitude { get; set; }
+    public decimal? SenderLongitude { get; set; }
+    public decimal? ReceiverLatitude { get; set; }
+    public decimal? ReceiverLongitude { get; set; }
+
     public DateTime? ExpectedDeliveryAtUtc { get; set; }
     public long CreatedByUserId { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;

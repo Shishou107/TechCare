@@ -5,20 +5,35 @@ import { API_BASE_URL } from '../api/client'
 
 export interface ShipmentEventDto {
   occurredAtUtc: string
-  status: string
+  status?: string
+  providerStatus?: string
+  internalStatus?: string
   location?: string | null
+  locationText?: string | null
+  description?: string | null
   note?: string | null
+  latitude?: number | null
+  longitude?: number | null
 }
 
 export interface ShipmentTrackingDto {
   shipmentId: number
   appointmentId?: number | null
   repairTicketId?: number | null
-  trackingCode: string
-  provider: string
-  status: string
-  shippingFee: number
+  trackingCode?: string
+  waybillCode?: string
+  provider?: string
+  carrierCode?: string
+  status?: string
+  statusCode?: string
+  statusName?: string
+  shippingFee?: number
+  feeAmount?: number
   printUrl?: string | null
+  senderLatitude?: number | null
+  senderLongitude?: number | null
+  receiverLatitude?: number | null
+  receiverLongitude?: number | null
   events: ShipmentEventDto[]
 }
 
@@ -39,29 +54,66 @@ interface TrackingSectionProps {
   autoSearch?: boolean
 }
 
-// Map Component with Leaflet
+// Map Component with Leaflet (Real Coordinates & Dynamic Points)
 function ShipmentRouteMap({ shipment, customerLocation }: { shipment: ShipmentTrackingDto; customerLocation?: string }) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<L.Map | null>(null)
 
-  useEffect(() => {
-    if (!mapContainerRef.current) return
+  // Collect valid points strictly from geocoded sender, receiver, and tracked events
+  const points: { coord: [number, number]; label: string; desc: string; isDone: boolean }[] = []
 
-    // Avoid multiple instances on same div
+  if (typeof shipment.senderLatitude === 'number' && typeof shipment.senderLongitude === 'number') {
+    points.push({
+      coord: [shipment.senderLatitude, shipment.senderLongitude],
+      label: 'Điểm gửi',
+      desc: customerLocation || 'Địa chỉ bên gửi',
+      isDone: true,
+    })
+  }
+
+  if (shipment.events && shipment.events.length > 0) {
+    shipment.events.forEach((evt, idx) => {
+      const lat = evt.latitude
+      const lng = evt.longitude
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        const isDuplicate = points.some(p => Math.abs(p.coord[0] - lat) < 0.0001 && Math.abs(p.coord[1] - lng) < 0.0001)
+        if (!isDuplicate) {
+          points.push({
+            coord: [lat, lng],
+            label: `Trạm ${idx + 1}`,
+            desc: evt.location || evt.locationText || evt.description || evt.note || 'Trạm trung chuyển bưu cục',
+            isDone: true,
+          })
+        }
+      }
+    })
+  }
+
+  if (typeof shipment.receiverLatitude === 'number' && typeof shipment.receiverLongitude === 'number') {
+    const isDuplicate = points.some(p => Math.abs(p.coord[0] - shipment.receiverLatitude!) < 0.0001 && Math.abs(p.coord[1] - shipment.receiverLongitude!) < 0.0001)
+    if (!isDuplicate) {
+      const isDelivered = shipment.statusCode === 'DELIVERED' || shipment.status === 'DELIVERED'
+      points.push({
+        coord: [shipment.receiverLatitude, shipment.receiverLongitude],
+        label: 'Điểm nhận',
+        desc: 'Địa chỉ bên nhận hàng',
+        isDone: isDelivered,
+      })
+    }
+  }
+
+  useEffect(() => {
+    if (!mapContainerRef.current || points.length < 2) return
+
     if (mapInstanceRef.current) {
       mapInstanceRef.current.remove()
       mapInstanceRef.current = null
     }
 
-    // Default route points: Sender location -> GHN Sorting Hub -> TechCare Center
-    const senderCoords: [number, number] = [21.0333, 105.7833] // Cầu Giấy, Hà Nội
-    const hubCoords: [number, number] = [21.0125, 105.8010]    // GHN Hub Nam Từ Liêm / Thanh Xuân
-    const techCareCoords: [number, number] = [21.0285, 105.8542] // TechCare Center Hoàn Kiếm
-
     const map = L.map(mapContainerRef.current, {
       zoomControl: true,
       attributionControl: false,
-    }).setView([21.025, 105.815], 13)
+    }).setView(points[0].coord, 12)
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 18,
@@ -85,25 +137,14 @@ function ShipmentRouteMap({ shipment, customerLocation }: { shipment: ShipmentTr
         iconAnchor: [40, 14],
       })
 
-    // Markers
-    L.marker(senderCoords, { icon: createIcon('1. Bưu cục gửi', true) })
-      .addTo(map)
-      .bindPopup(`<b>Điểm gửi:</b> ${customerLocation || 'Địa chỉ khách hàng'}`)
-
-    L.marker(hubCoords, {
-      icon: createIcon('2. Kho GHN', shipment.status !== 'CREATED' && shipment.status !== 'PICKING'),
+    points.forEach((p) => {
+      L.marker(p.coord, { icon: createIcon(p.label, p.isDone) })
+        .addTo(map)
+        .bindPopup(`<b>${p.label}:</b> ${p.desc}`)
     })
-      .addTo(map)
-      .bindPopup(`<b>Kho phân loại:</b> Trung tâm chuyển phát GHN Express`)
 
-    L.marker(techCareCoords, {
-      icon: createIcon('3. TechCare', shipment.status === 'DELIVERED'),
-    })
-      .addTo(map)
-      .bindPopup(`<b>Điểm nhận:</b> Xưởng kỹ thuật Trung tâm TechCare`)
-
-    // Route Polyline
-    const routeLine = L.polyline([senderCoords, hubCoords, techCareCoords], {
+    const latLngs = points.map(p => p.coord)
+    const routeLine = L.polyline(latLngs, {
       color: '#111111',
       weight: 3,
       dashArray: '6, 8',
@@ -119,7 +160,18 @@ function ShipmentRouteMap({ shipment, customerLocation }: { shipment: ShipmentTr
         mapInstanceRef.current = null
       }
     }
-  }, [shipment, customerLocation])
+  }, [points.length])
+
+  // If fewer than 2 valid coordinate points exist, hide map and display notice as specified in FIX-1
+  if (points.length < 2) {
+    return (
+      <div className="no-map-coords-notice" style={{ marginTop: '16px', padding: '24px', textAlign: 'center', color: '#666', background: '#fafaf8', borderRadius: '10px', border: '1px dashed #d4d4d0', fontSize: '13px' }}>
+        Chưa có dữ liệu vị trí cho đơn này
+      </div>
+    )
+  }
+
+  const carrierName = shipment.carrierCode || shipment.provider || 'GHN'
 
   return (
     <div style={{ marginTop: '16px', borderRadius: '10px', overflow: 'hidden', border: '1px solid var(--line)' }}>
@@ -129,7 +181,7 @@ function ShipmentRouteMap({ shipment, customerLocation }: { shipment: ShipmentTr
       />
       <div style={{ padding: '8px 14px', background: '#fafaf8', borderTop: '1px solid var(--line)', fontSize: '11px', color: '#666', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span>Bản đồ hành trình lộ trình bưu phẩm thời gian thực (Leaflet / OpenStreetMap)</span>
-        <span style={{ fontWeight: 600, color: '#111' }}>Đối tác: {shipment.provider} Express</span>
+        <span style={{ fontWeight: 600, color: '#111' }}>Đối tác: {carrierName} Express</span>
       </div>
     </div>
   )
@@ -319,11 +371,11 @@ export function TrackingSection({ initialCode = '', initialPhone = '', autoSearc
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                 <div>
                   <h4 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--ink)' }}>
-                    Hành trình vận chuyển thực tế — {ticket.shipment.provider} Express
+                    Hành trình vận chuyển thực tế — {ticket.shipment.carrierCode || ticket.shipment.provider || 'GHN'} Express
                   </h4>
                   <span style={{ fontSize: '12px', color: '#555' }}>
-                    Mã vận đơn: <strong>{ticket.shipment.trackingCode}</strong> | Trạng thái: <strong>{mapShipmentStatusText(ticket.shipment.status)}</strong>
-                    {ticket.shipment.shippingFee > 0 && ` | Cước vận chuyển: ${ticket.shipment.shippingFee.toLocaleString('vi-VN')}đ`}
+                    Mã vận đơn: <strong>{ticket.shipment.waybillCode || ticket.shipment.trackingCode}</strong> | Trạng thái: <strong>{mapShipmentStatusText(ticket.shipment.status || ticket.shipment.statusCode || '')}</strong>
+                    {((ticket.shipment.shippingFee ?? ticket.shipment.feeAmount ?? 0) > 0) && ` | Cước vận chuyển: ${(ticket.shipment.shippingFee ?? ticket.shipment.feeAmount ?? 0).toLocaleString('vi-VN')}đ`}
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -371,7 +423,7 @@ export function TrackingSection({ initialCode = '', initialPhone = '', autoSearc
                           {new Date(ev.occurredAtUtc).toLocaleString('vi-VN')}
                         </div>
                         <div>
-                          <strong style={{ color: '#111' }}>{mapShipmentStatusText(ev.status)}</strong>
+                          <strong style={{ color: '#111' }}>{mapShipmentStatusText(ev.status || ev.providerStatus || ev.internalStatus || '')}</strong>
                           {ev.location && <span style={{ color: '#555', marginLeft: '6px' }}>— {ev.location}</span>}
                           {ev.note && <div style={{ color: '#777', fontSize: '11.5px', marginTop: '2px' }}>{ev.note}</div>}
                         </div>

@@ -39,6 +39,11 @@ public partial class TechCareDbContext
             entity.Property(e => e.ReceiverDistrictCode).HasMaxLength(20);
             entity.Property(e => e.ReceiverWardCode).HasMaxLength(30);
 
+            entity.Property(e => e.SenderLatitude).HasColumnType("decimal(9,6)");
+            entity.Property(e => e.SenderLongitude).HasColumnType("decimal(9,6)");
+            entity.Property(e => e.ReceiverLatitude).HasColumnType("decimal(9,6)");
+            entity.Property(e => e.ReceiverLongitude).HasColumnType("decimal(9,6)");
+
             entity.Property(e => e.CodAmount).HasColumnType("decimal(18,0)").HasDefaultValue(0);
             entity.Property(e => e.InsuredValue).HasColumnType("decimal(18,0)").HasDefaultValue(0);
             entity.Property(e => e.FeeAmount).HasColumnType("decimal(18,0)");

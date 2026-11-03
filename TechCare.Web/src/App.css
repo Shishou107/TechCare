@@ -176,7 +176,7 @@ select {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--pcb);
+  background: rgba(0, 0, 0, 0.15);
 }
 
 /* 2. HERO SECTION (Trang chủ) */
@@ -943,7 +943,7 @@ button.button:disabled,
 .booking-submit-pill:hover:not(:disabled) {
   transform: translateY(-2px);
   background: #000000;
-  box-shadow: 0 8px 24px rgba(46, 229, 157, 0.45);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
 }
 
 .booking-submit-pill:hover:not(:disabled)::before {
