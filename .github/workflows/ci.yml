@@ -20,12 +20,12 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore dependencies
-        run: dotnet restore TechCare/API_FixComputerCenter.Tests/API_FixComputerCenter.Tests.csproj
+        run: dotnet restore API_FixComputerCenter.Tests/API_FixComputerCenter.Tests.csproj
 
       - name: Build and Run Tests
         env:
           TECHCARE_JWT_SECRET: "TechCare_CI_Test_Environment_Secret_Key_At_Least_32_Chars_Long!"
-        run: dotnet test TechCare/API_FixComputerCenter.Tests/API_FixComputerCenter.Tests.csproj --verbosity normal
+        run: dotnet test API_FixComputerCenter.Tests/API_FixComputerCenter.Tests.csproj --verbosity normal
 
   frontend-build:
     name: Frontend Build (Vite & TypeScript)
@@ -40,9 +40,10 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        working-directory: TechCare/TechCare.Web
+        working-directory: TechCare.Web
         run: npm ci
 
       - name: Typecheck and Build
-        working-directory: TechCare/TechCare.Web
+        working-directory: TechCare.Web
         run: npm run build
+

@@ -7,6 +7,7 @@ using API_FixComputerCenter.Application.Common.Exceptions;
 using API_FixComputerCenter.Application.Common.Interfaces;
 using API_FixComputerCenter.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
@@ -90,34 +91,66 @@ public class AuthService : IAuthService
         bool isValid = VerifyPasswordHash(req.Password, user.PasswordHash);
         if (!isValid)
         {
-            // A7: Atomic update for lockout counter
-            var nextCount = user.AccessFailedCount + 1;
-            DateTime? lockoutEnd = (nextCount >= 5 && user.LockoutEnabled) ? DateTime.UtcNow.AddMinutes(15) : user.LockoutEndUtc;
-
-            await _db.Users.Where(u => u.UserId == user.UserId)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(x => x.AccessFailedCount, nextCount)
-                    .SetProperty(x => x.LockoutEndUtc, lockoutEnd), ct);
+            // S3 / A7: Atomic single-statement update for lockout counter & lockout end time
+            if (_db.Database.IsRelational())
+            {
+                await _db.Users.Where(u => u.UserId == user.UserId)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(x => x.AccessFailedCount, x => x.AccessFailedCount + 1)
+                        .SetProperty(x => x.LockoutEndUtc, x => (x.AccessFailedCount + 1 >= 5 && x.LockoutEnabled) ? DateTime.UtcNow.AddMinutes(15) : x.LockoutEndUtc), ct);
+            }
+            else
+            {
+                user.AccessFailedCount++;
+                if (user.AccessFailedCount >= 5 && user.LockoutEnabled)
+                {
+                    user.LockoutEndUtc = DateTime.UtcNow.AddMinutes(15);
+                }
+                await _db.SaveChangesAsync(ct);
+            }
 
             throw new UnauthorizedException("Tên đăng nhập hoặc mật khẩu không chính xác.");
         }
 
         // Reset failed count on successful password
-        await _db.Users.Where(u => u.UserId == user.UserId)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(x => x.AccessFailedCount, 0)
-                .SetProperty(x => x.LockoutEndUtc, (DateTime?)null)
-                .SetProperty(x => x.LastLoginAtUtc, DateTime.UtcNow), ct);
+        if (_db.Database.IsRelational())
+        {
+            await _db.Users.Where(u => u.UserId == user.UserId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.AccessFailedCount, 0)
+                    .SetProperty(x => x.LockoutEndUtc, (DateTime?)null)
+                    .SetProperty(x => x.LastLoginAtUtc, DateTime.UtcNow), ct);
+        }
+        else
+        {
+            user.AccessFailedCount = 0;
+            user.LockoutEndUtc = null;
+            user.LastLoginAtUtc = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+        }
 
         if (string.IsNullOrEmpty(user.SecurityStamp))
         {
             user.SecurityStamp = Guid.NewGuid().ToString();
-            await _db.Users.Where(u => u.UserId == user.UserId)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.SecurityStamp, user.SecurityStamp), ct);
+            if (_db.Database.IsRelational())
+            {
+                await _db.Users.Where(u => u.UserId == user.UserId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.SecurityStamp, user.SecurityStamp), ct);
+            }
+            else
+            {
+                await _db.SaveChangesAsync(ct);
+            }
         }
 
-        // 3. Enforce session limit (Max 5 per user, revoke oldest if exceeded) in atomic lock
-        using var tx = await _db.Database.BeginTransactionAsync(ct);
+        // 3. Enforce session limit (Max 5 per user, revoke oldest if exceeded) in atomic lock (S4)
+        IDbContextTransaction? tx = null;
+        if (_db.Database.IsRelational())
+        {
+            tx = await _db.Database.BeginTransactionAsync(ct);
+            // Acquire row-level update lock (UPDLOCK) on this user's record to prevent concurrent login race conditions
+            await _db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM Security.Users WITH (UPDLOCK, ROWLOCK) WHERE UserId = {user.UserId}", ct);
+        }
 
         var activeSessions = await _db.Sessions
             .Where(s => s.UserId == user.UserId && s.RevokedAtUtc == null && s.AbsoluteExpiresAtUtc > DateTime.UtcNow)
@@ -133,9 +166,20 @@ public class AuthService : IAuthService
                 oldSession.RevokedAtUtc = DateTime.UtcNow;
                 oldSession.RevokeReason = "SESSION_LIMIT";
 
-                await _db.RefreshTokens
-                    .Where(t => t.SessionId == oldSession.SessionId && t.RevokedAtUtc == null)
-                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAtUtc, DateTime.UtcNow), ct);
+                if (_db.Database.IsRelational())
+                {
+                    await _db.RefreshTokens
+                        .Where(t => t.SessionId == oldSession.SessionId && t.RevokedAtUtc == null)
+                        .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAtUtc, DateTime.UtcNow), ct);
+                }
+                else
+                {
+                    var tokens = await _db.RefreshTokens
+                        .Where(t => t.SessionId == oldSession.SessionId && t.RevokedAtUtc == null)
+                        .ToListAsync(ct);
+                    foreach (var tok in tokens) tok.RevokedAtUtc = DateTime.UtcNow;
+                    await _db.SaveChangesAsync(ct);
+                }
             }
         }
 
@@ -151,7 +195,8 @@ public class AuthService : IAuthService
             AbsoluteExpiresAtUtc = DateTime.UtcNow.AddDays(SessionAbsoluteExpirationDays),
             CreatedByIp = ipAddress,
             UserAgent = userAgent?.Length > 500 ? userAgent[..500] : userAgent,
-            DeviceLabel = deviceLabel
+            DeviceLabel = deviceLabel,
+            RowVersion = Array.Empty<byte>()
         };
         _db.Sessions.Add(session);
 
@@ -168,7 +213,11 @@ public class AuthService : IAuthService
         _db.RefreshTokens.Add(refreshToken);
 
         await _db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
+        if (tx != null)
+        {
+            await tx.CommitAsync(ct);
+            await tx.DisposeAsync();
+        }
 
         var roles = user.UserRoleUsers
             .Where(ur => ur.Role != null)
