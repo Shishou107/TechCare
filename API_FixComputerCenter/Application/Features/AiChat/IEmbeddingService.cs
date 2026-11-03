@@ -160,3 +160,4 @@ public class EmbeddingService : IEmbeddingService
         return dotProduct / (Math.Sqrt(normA) * Math.Sqrt(normB));
     }
 }
+

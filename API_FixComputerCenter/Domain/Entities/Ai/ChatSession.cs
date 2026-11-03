@@ -20,3 +20,4 @@ public class ChatSession
     public virtual User? AssignedSupportUser { get; set; }
     public virtual ICollection<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
 }
+

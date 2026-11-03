@@ -20,3 +20,4 @@ public class KnowledgeDocument
     public virtual User? CreatedByUser { get; set; }
     public virtual ICollection<KnowledgeChunk> Chunks { get; set; } = new List<KnowledgeChunk>();
 }
+

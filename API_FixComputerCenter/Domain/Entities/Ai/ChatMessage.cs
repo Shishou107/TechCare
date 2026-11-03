@@ -16,3 +16,4 @@ public class ChatMessage
     public virtual ChatSession Session { get; set; } = null!;
     public virtual User? SenderUser { get; set; }
 }
+

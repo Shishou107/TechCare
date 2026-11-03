@@ -88,3 +88,4 @@ public interface IShippingProvider
     Task<IReadOnlyList<GhnLocationItem>> GetDistrictsAsync(int provinceId, CancellationToken ct = default);
     Task<IReadOnlyList<GhnLocationItem>> GetWardsAsync(int districtId, CancellationToken ct = default);
 }
+

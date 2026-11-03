@@ -48,3 +48,4 @@ public class Shipment
     public virtual User? CreatedByUser { get; set; }
     public virtual ICollection<ShipmentEvent> Events { get; set; } = new List<ShipmentEvent>();
 }
+

@@ -69,3 +69,4 @@ public class ShipmentStatusSyncService : BackgroundService
         await db.SaveChangesAsync(ct);
     }
 }
+

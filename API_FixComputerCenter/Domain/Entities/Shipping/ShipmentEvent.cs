@@ -18,3 +18,4 @@ public class ShipmentEvent
 
     public virtual Shipment Shipment { get; set; } = null!;
 }
+

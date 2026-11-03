@@ -16,3 +16,4 @@ public class KnowledgeChunk
 
     public virtual KnowledgeDocument Document { get; set; } = null!;
 }
+

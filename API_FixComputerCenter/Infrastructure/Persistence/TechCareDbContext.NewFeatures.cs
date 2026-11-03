@@ -162,3 +162,4 @@ public partial class TechCareDbContext
         });
     }
 }
+
