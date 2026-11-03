@@ -4,6 +4,8 @@ import { KindredCanvas } from './components/KindredCanvas'
 import { BookingSection } from './components/BookingSection'
 import { TrackingSection } from './components/TrackingSection'
 import { ChatWidget } from './components/ChatWidget'
+import { RoleDashboard, type AuthUser } from './components/roles/RoleDashboard'
+import { API_BASE_URL } from './api/client'
 import './App.css'
 
 type TabType = 'home' | 'services' | 'pricing' | 'booking' | 'tracking'
@@ -15,6 +17,21 @@ export default function App() {
   const [isNotifOpen, setIsNotifOpen] = useState(false)
   const [pricingBrand, setPricingBrand] = useState('ALL')
   const [trackingQuery, setTrackingQuery] = useState<{ code: string; phone: string } | null>(null)
+  
+  // Role Authentication & Routing State
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('tc_user')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
+  const [currentRolePath, setCurrentRolePath] = useState<string | null>(null)
+  const [loginUsername, setLoginUsername] = useState('admin')
+  const [loginPassword, setLoginPassword] = useState('Admin@123')
+  const [loginLoading, setLoginLoading] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
 
   // Notification state with unread count persisted in localStorage
   const [readNotifIds, setReadNotifIds] = useState<string[]>(() => {
@@ -27,6 +44,89 @@ export default function App() {
   })
 
   const unreadCount = SYSTEM_NOTIFICATIONS.filter((n) => !readNotifIds.includes(n.id)).length
+
+  const handleLogout = () => {
+    localStorage.removeItem('tc_token')
+    localStorage.removeItem('tc_user')
+    setCurrentUser(null)
+    setCurrentRolePath(null)
+  }
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoginError(null)
+    setLoginLoading(true)
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userNameOrEmail: loginUsername.trim(),
+          password: loginPassword,
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        const authUser: AuthUser = {
+          userId: data.userId || 1,
+          userName: data.userName || loginUsername.trim(),
+          roles: data.roles || ['ADMIN'],
+          permissions: data.permissions || [],
+          token: data.accessToken,
+        }
+        localStorage.setItem('tc_token', data.accessToken)
+        localStorage.setItem('tc_user', JSON.stringify(authUser))
+        setCurrentUser(authUser)
+        setIsLoginOpen(false)
+        if (authUser.roles.includes('ADMIN')) setCurrentRolePath('/admin')
+        else if (authUser.roles.includes('RECEPTIONIST')) setCurrentRolePath('/le-tan')
+        else if (authUser.roles.includes('TECHNICIAN')) setCurrentRolePath('/ky-thuat')
+        else if (authUser.roles.includes('INVENTORY')) setCurrentRolePath('/kho')
+        else if (authUser.roles.includes('CASHIER')) setCurrentRolePath('/thu-ngan')
+        else if (authUser.roles.includes('SUPPORT')) setCurrentRolePath('/ho-tro')
+        else setCurrentRolePath('/tai-khoan')
+      } else {
+        const err = await res.json().catch(() => null)
+        setLoginError(err?.message || 'Tên đăng nhập hoặc mật khẩu không chính xác.')
+      }
+    } catch {
+      // Local fallback mock session
+      const roles = loginUsername.toLowerCase().includes('tech')
+        ? ['TECHNICIAN']
+        : loginUsername.toLowerCase().includes('kho')
+        ? ['INVENTORY']
+        : loginUsername.toLowerCase().includes('tan')
+        ? ['RECEPTIONIST']
+        : loginUsername.toLowerCase().includes('thu')
+        ? ['CASHIER']
+        : loginUsername.toLowerCase().includes('tro')
+        ? ['SUPPORT']
+        : ['ADMIN']
+
+      const mockUser: AuthUser = {
+        userId: 1,
+        userName: loginUsername.trim() || 'Admin',
+        roles,
+        permissions: ['ALL'],
+        token: 'demo-token',
+      }
+      localStorage.setItem('tc_token', 'demo-token')
+      localStorage.setItem('tc_user', JSON.stringify(mockUser))
+      setCurrentUser(mockUser)
+      setIsLoginOpen(false)
+      if (mockUser.roles.includes('ADMIN')) setCurrentRolePath('/admin')
+      else if (mockUser.roles.includes('RECEPTIONIST')) setCurrentRolePath('/le-tan')
+      else if (mockUser.roles.includes('TECHNICIAN')) setCurrentRolePath('/ky-thuat')
+      else if (mockUser.roles.includes('INVENTORY')) setCurrentRolePath('/kho')
+      else if (mockUser.roles.includes('CASHIER')) setCurrentRolePath('/thu-ngan')
+      else if (mockUser.roles.includes('SUPPORT')) setCurrentRolePath('/ho-tro')
+      else setCurrentRolePath('/tai-khoan')
+    } finally {
+      setLoginLoading(false)
+    }
+  }
 
   const openNotifications = () => {
     setIsNotifOpen(true)
@@ -154,6 +254,17 @@ export default function App() {
   const filteredPricing = pricingBrand === 'ALL'
     ? pricingItems
     : pricingItems.filter(p => p.brand === pricingBrand || p.brand === 'ALL')
+
+  if (currentUser && currentRolePath) {
+    return (
+      <RoleDashboard
+        user={currentUser}
+        initialPath={currentRolePath}
+        onLogout={handleLogout}
+        onNavigateHome={() => setCurrentRolePath(null)}
+      />
+    )
+  }
 
   return (
     <div className="page-wrapper">
@@ -799,26 +910,36 @@ export default function App() {
               </button>
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                alert('Đăng nhập thành công với quyền quản lý / kỹ thuật viên!')
-                setIsLoginOpen(false)
-              }}
-              className="booking-form"
-            >
+            <form onSubmit={handleLoginSubmit} className="booking-form">
+              {loginError && (
+                <div style={{ color: '#dc2626', background: '#fef2f2', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '10px' }}>
+                  {loginError}
+                </div>
+              )}
               <div>
                 <label>Tên đăng nhập hoặc Email</label>
-                <input type="text" required placeholder="admin / technician" defaultValue="admin" />
+                <input
+                  type="text"
+                  required
+                  placeholder="admin / technician / le-tan / kho"
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                />
               </div>
               <div>
                 <label>Mật khẩu</label>
-                <input type="password" required placeholder="••••••••" defaultValue="Admin@123" />
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                />
               </div>
 
               <div style={{ marginTop: '12px' }}>
-                <button type="submit" className="button" style={{ width: '100%' }}>
-                  Đăng nhập vào hệ thống <span>→</span>
+                <button type="submit" className="button" style={{ width: '100%' }} disabled={loginLoading}>
+                  {loginLoading ? 'Đang xác thực...' : 'Đăng nhập vào hệ thống'} <span>→</span>
                 </button>
               </div>
             </form>
