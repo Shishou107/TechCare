@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+﻿import { useEffect, useRef } from 'react'
 
 export function KindredCanvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)

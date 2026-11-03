@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { API_BASE_URL } from '../api/client'
 
 interface HardwareSpecs {
   sessionCode?: string
@@ -16,7 +17,13 @@ interface BookingSectionProps {
 }
 
 export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
-  const [sessionCode] = useState(() => 'FL-' + Math.floor(1000 + Math.random() * 9000))
+  // Generate secure cryptographic session code for hardware quick-sync
+  const [sessionCode] = useState(() => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return 'TC-' + crypto.randomUUID().slice(0, 8).toUpperCase()
+    }
+    return 'TC-' + Math.random().toString(36).slice(2, 10).toUpperCase()
+  })
   const [isListening, setIsListening] = useState(false)
   const [autoFilled, setAutoFilled] = useState(false)
 
@@ -53,7 +60,7 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`http://localhost:5000/api/v1/diagnostics/quick-sync/${sessionCode}`)
+        const res = await fetch(`${API_BASE_URL}/api/v1/diagnostics/quick-sync/${sessionCode}`)
         const data = await res.json()
         if (data && data.synced && data.data) {
           const spec: HardwareSpecs = data.data
@@ -81,7 +88,7 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
 
   const handleStartScan = () => {
     setIsListening(true)
-    const downloadUrl = `http://localhost:5000/api/v1/diagnostics/download-script/${sessionCode}`
+    const downloadUrl = `${API_BASE_URL}/api/v1/diagnostics/download-script/${sessionCode}`
     const a = document.createElement('a')
     a.href = downloadUrl
     a.download = `TechCare-Scan-${sessionCode}.bat`
@@ -109,7 +116,7 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
         issueDescription: `[${formData.serviceType === 'PICKUP' ? 'GIAO NHẬN TẬN NƠI' : 'TẠI TIỆM'}] ${formData.issueDescription.trim()}`,
       }
 
-      const res = await fetch('http://localhost:5000/api/v1/appointments/submit', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/appointments/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
         body: JSON.stringify(payload),

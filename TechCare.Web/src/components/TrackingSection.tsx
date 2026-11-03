@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { API_BASE_URL } from '../api/client'
 
 interface TicketInfo {
   code: string
@@ -15,6 +16,7 @@ export function TrackingSection() {
   const [loading, setLoading] = useState(false)
   const [ticket, setTicket] = useState<TicketInfo | null>(null)
   const [searched, setSearched] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,52 +25,35 @@ export function TrackingSection() {
     setLoading(true)
     setSearched(true)
     setTicket(null)
+    setErrorMessage(null)
 
     try {
-      // Query backend appointments
-      const res = await fetch(`http://localhost:5000/api/v1/appointments?page=1&pageSize=50`)
+      // Safe, dedicated tracking endpoint (no data leaks of other customers)
+      const res = await fetch(`${API_BASE_URL}/api/v1/appointments/track?keyword=${encodeURIComponent(keyword.trim())}`)
       if (res.ok) {
-        const data = await res.json()
-        const items = data.items || []
-        const clean = keyword.trim().toLowerCase()
-        const found = items.find(
-          (x: { appointmentCode: string; customerPhone: string; customerName: string }) =>
-            (x.appointmentCode && x.appointmentCode.toLowerCase().includes(clean)) ||
-            (x.customerPhone && x.customerPhone.includes(clean))
-        )
-
-        if (found) {
+        const result = await res.json()
+        if (result && result.found && result.data) {
+          const found = result.data
           setTicket({
-            code: found.appointmentCode,
-            customerName: found.customerName,
-            phone: found.customerPhone,
+            code: found.appointmentCode || found.ticketCode || keyword.toUpperCase(),
+            customerName: found.customerName || 'Khách hàng',
+            phone: found.customerPhone || '',
             modelName: found.modelName || 'Laptop',
             status: found.status || 'BOOKED',
-            scheduledAt: new Date(found.scheduledAtUtc).toLocaleString('vi-VN'),
-            issue: found.customerDescription || found.subject || 'Kiểm tra phần cứng tổng thể',
+            scheduledAt: found.scheduledAtUtc ? new Date(found.scheduledAtUtc).toLocaleString('vi-VN') : 'Đang xử lý',
+            issue: found.customerDescription || found.subject || found.customerIssue || 'Kiểm tra phần cứng tổng thể',
           })
-          setLoading(false)
-          return
+        } else {
+          setErrorMessage(result.message || 'Không tìm thấy thông tin đơn hẹn hoặc phiếu sửa chữa.')
         }
+      } else {
+        setErrorMessage('Không thể tra cứu vào lúc này. Vui lòng thử lại sau.')
       }
     } catch {
-      // Fallback
+      setErrorMessage('Lỗi kết nối đến máy chủ. Vui lòng kiểm tra lại mạng hoặc thử lại sau.')
+    } finally {
+      setLoading(false)
     }
-
-    // Demo fallback if searching demo codes
-    if (keyword.toUpperCase().includes('TC-') || keyword.toUpperCase().includes('APPT-') || keyword.length >= 10) {
-      setTicket({
-        code: keyword.toUpperCase(),
-        customerName: 'Khách hàng FixLab',
-        phone: '090***' + keyword.slice(-4),
-        modelName: 'ThinkPad T14 Gen 3',
-        status: 'DIAGNOSING',
-        scheduledAt: 'Hôm nay, 14:30',
-        issue: 'Khắc phục lỗi mất nguồn IC sạc Type-C, vệ sinh tra keo tản nhiệt gốm',
-      })
-    }
-
-    setLoading(false)
   }
 
   const steps = [
@@ -81,7 +66,7 @@ export function TrackingSection() {
 
   const getStepIndex = (status: string) => {
     const s = status.toUpperCase()
-    if (s.includes('READY') || s.includes('DELIVERED') || s.includes('COMPLETED')) return 4
+    if (s.includes('READY') || s.includes('DELIVERED') || s.includes('COMPLETED') || s.includes('RETURNED')) return 4
     if (s.includes('REPAIR')) return 3
     if (s.includes('DIAGNOS') || s.includes('WAITING')) return 2
     if (s.includes('RECEIV')) return 1
@@ -155,11 +140,10 @@ export function TrackingSection() {
         <div className="no-result-card">
           <p>Không tìm thấy phiếu sửa chữa khớp với từ khóa <strong>"{keyword}"</strong>.</p>
           <span style={{ fontSize: '12px', color: '#777', display: 'block', marginTop: '6px' }}>
-            Vui lòng kiểm tra lại số điện thoại hoặc mã phiếu được cấp khi gửi yêu cầu.
+            {errorMessage || 'Vui lòng kiểm tra lại số điện thoại hoặc mã phiếu được cấp khi gửi yêu cầu.'}
           </span>
         </div>
       )}
     </section>
   )
 }
-
