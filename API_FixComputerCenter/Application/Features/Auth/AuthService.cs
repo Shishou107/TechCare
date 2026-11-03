@@ -6,6 +6,7 @@ using API_FixComputerCenter.Application.Common.Exceptions;
 using API_FixComputerCenter.Application.Common.Interfaces;
 using API_FixComputerCenter.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 
@@ -44,13 +45,15 @@ public class AuthService : IAuthService
     private readonly IConfiguration _config;
     private readonly ICurrentUserService _currentUser;
     private readonly IAuditService _audit;
+    private readonly IMemoryCache _cache;
 
-    public AuthService(ITechCareDbContext db, IConfiguration config, ICurrentUserService currentUser, IAuditService audit)
+    public AuthService(ITechCareDbContext db, IConfiguration config, ICurrentUserService currentUser, IAuditService audit, IMemoryCache cache)
     {
         _db = db;
         _config = config;
         _currentUser = currentUser;
         _audit = audit;
+        _cache = cache;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest req, string? ipAddress, string? userAgent, CancellationToken ct = default)
@@ -79,25 +82,35 @@ public class AuthService : IAuthService
         bool isValid = VerifyPasswordHash(req.Password, user.PasswordHash);
         if (!isValid)
         {
-            user.AccessFailedCount++;
-            if (user.AccessFailedCount >= 5 && user.LockoutEnabled)
-            {
-                user.LockoutEndUtc = DateTime.UtcNow.AddMinutes(15);
-            }
-            await _db.SaveChangesAsync(ct);
+            // A7: Atomic update for lockout counter
+            var nextCount = user.AccessFailedCount + 1;
+            DateTime? lockoutEnd = (nextCount >= 5 && user.LockoutEnabled) ? DateTime.UtcNow.AddMinutes(15) : user.LockoutEndUtc;
+
+            await _db.Users.Where(u => u.UserId == user.UserId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.AccessFailedCount, nextCount)
+                    .SetProperty(x => x.LockoutEndUtc, lockoutEnd), ct);
+
             throw new UnauthorizedException("Tên đăng nhập hoặc mật khẩu không chính xác.");
         }
 
         // Reset failed count on successful password
-        user.AccessFailedCount = 0;
-        user.LockoutEndUtc = null;
-        user.LastLoginAtUtc = DateTime.UtcNow;
+        await _db.Users.Where(u => u.UserId == user.UserId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.AccessFailedCount, 0)
+                .SetProperty(x => x.LockoutEndUtc, (DateTime?)null)
+                .SetProperty(x => x.LastLoginAtUtc, DateTime.UtcNow), ct);
+
         if (string.IsNullOrEmpty(user.SecurityStamp))
         {
             user.SecurityStamp = Guid.NewGuid().ToString();
+            await _db.Users.Where(u => u.UserId == user.UserId)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.SecurityStamp, user.SecurityStamp), ct);
         }
 
-        // 3. Enforce session limit (Max 5 per user, revoke oldest if exceeded)
+        // 3. Enforce session limit (Max 5 per user, revoke oldest if exceeded) in atomic lock
+        using var tx = await _db.Database.BeginTransactionAsync(ct);
+
         var activeSessions = await _db.Sessions
             .Where(s => s.UserId == user.UserId && s.RevokedAtUtc == null && s.AbsoluteExpiresAtUtc > DateTime.UtcNow)
             .OrderBy(s => s.CreatedAtUtc)
@@ -147,6 +160,7 @@ public class AuthService : IAuthService
         _db.RefreshTokens.Add(refreshToken);
 
         await _db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
 
         var roles = user.UserRoleUsers
             .Where(ur => ur.Role != null)
@@ -256,6 +270,10 @@ public class AuthService : IAuthService
 
             var newAccessToken = GenerateJwtToken(user, session.SessionId, roles, permissions);
 
+            // A2: Cache the issued pair keyed by old token hash for grace retry
+            var oldHex = Convert.ToHexString(oldToken.TokenHash);
+            _cache.Set($"rt_grace_{oldHex}", (newRawRt, newAccessToken), TimeSpan.FromSeconds(GraceWindowSeconds));
+
             return new AuthResponse(
                 AccessToken: newAccessToken,
                 RefreshToken: newRawRt,
@@ -275,33 +293,22 @@ public class AuthService : IAuthService
             throw new UnauthorizedException("Refresh token không tồn tại.");
         }
 
-        // Grace window handling: if rotated within 20s and from same IP -> Grace Retry
+        // A2: Grace window handling: if rotated within 20s and from same IP -> Grace Retry with the new pair!
         if (token.RotatedAtUtc.HasValue && token.ReplacedByTokenHash != null)
         {
             var elapsed = DateTime.UtcNow - token.RotatedAtUtc.Value;
             if (elapsed <= TimeSpan.FromSeconds(GraceWindowSeconds) && (token.LastUsedByIp == ipAddress || token.CreatedByIp == ipAddress))
             {
-                // Legitimate network retry within grace window
-                var replacedToken = await _db.RefreshTokens
-                    .Include(t => t.User)
-                        .ThenInclude(u => u.UserRoleUsers)
-                            .ThenInclude(ur => ur.Role)
-                                .ThenInclude(r => r.Permissions)
-                    .FirstOrDefaultAsync(t => t.TokenHash == token.ReplacedByTokenHash, ct);
-
-                if (replacedToken != null && replacedToken.User != null && replacedToken.RevokedAtUtc == null)
+                var hex = Convert.ToHexString(token.TokenHash);
+                if (_cache.TryGetValue($"rt_grace_{hex}", out (string NewRt, string NewAt) cachedPair))
                 {
-                    var u = replacedToken.User;
-                    var r = u.UserRoleUsers.Where(ur => ur.Role != null).Select(ur => ur.Role.RoleCode).Distinct().ToList();
-                    var p = u.UserRoleUsers.Where(ur => ur.Role != null).SelectMany(ur => ur.Role.Permissions).Select(p => p.PermissionCode).Distinct().ToList();
-                    var access = GenerateJwtToken(u, token.SessionId, r, p);
-
+                    var u = await _db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == token.UserId, ct);
                     return new AuthResponse(
-                        AccessToken: access,
-                        RefreshToken: null, // Client keeps current rotated token
+                        AccessToken: cachedPair.NewAt,
+                        RefreshToken: cachedPair.NewRt, // Provides the replacement RT so client doesn't get locked out!
                         TokenType: "Bearer",
                         ExpiresInSeconds: AccessTokenExpirationMinutes * 60,
-                        User: new UserProfileDto(u.UserId, u.UserName, u.Email, u.BranchId, r, p)
+                        User: new UserProfileDto(token.UserId, u?.UserName ?? "", u?.Email, u?.BranchId, new List<string>(), new List<string>())
                     );
                 }
             }
@@ -380,7 +387,7 @@ public class AuthService : IAuthService
     {
         if (string.IsNullOrWhiteSpace(req.NewPassword) || req.NewPassword.Length < 8)
         {
-            throw new ValidationException("Mật khẩu mới phải có tối thiểu 8 ký tự.");
+            throw new Common.Exceptions.ValidationException("Mật khẩu mới phải có tối thiểu 8 ký tự.");
         }
 
         var user = await _db.Users.FindAsync([userId], ct)
@@ -395,7 +402,7 @@ public class AuthService : IAuthService
         user.SecurityStamp = Guid.NewGuid().ToString();
         user.UpdatedAtUtc = DateTime.UtcNow;
 
-        // Revoke all sessions except none (force all to re-authenticate)
+        // Revoke all sessions (force all to re-authenticate)
         await _db.Sessions
             .Where(s => s.UserId == userId && s.RevokedAtUtc == null)
             .ExecuteUpdateAsync(s => s
@@ -552,7 +559,7 @@ public class AuthService : IAuthService
 
             var salt = Convert.FromBase64String(parts[0]);
             var hash = Convert.FromBase64String(parts[1]);
-            
+
             // Verify with 100,000 iterations
             var testHash = Rfc2898DeriveBytes.Pbkdf2(password, salt, Pbkdf2Iterations, HashAlgorithmName.SHA256, 32);
             if (CryptographicOperations.FixedTimeEquals(hash, testHash)) return true;

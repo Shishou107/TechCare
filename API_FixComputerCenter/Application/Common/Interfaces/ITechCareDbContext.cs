@@ -41,6 +41,7 @@ public interface ITechCareDbContext
     DbSet<WarrantyClaim> WarrantyClaims { get; }
 
     DatabaseFacade Database { get; }
+    Microsoft.EntityFrameworkCore.ChangeTracking.ChangeTracker ChangeTracker { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

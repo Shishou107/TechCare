@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using API_FixComputerCenter.Application.Common.Interfaces;
+using API_FixComputerCenter.Application.Common.Validators;
 using API_FixComputerCenter.Application.Features.Appointments;
 using API_FixComputerCenter.Application.Features.Auth;
 using API_FixComputerCenter.Application.Features.Customers;
@@ -61,8 +62,12 @@ public static class ApiEndpoints
                 SetRefreshTokenCookie(ctx, result.RefreshToken);
             }
 
-            return Results.Ok(result);
-        }).RequireRateLimiting("LoginRateLimit");
+            // A3: Omit refresh token from body for browser clients so JavaScript cannot access it via XSS
+            var isBrowserClient = !string.Equals(ctx.Request.Headers["X-Client-Type"], "mobile", StringComparison.OrdinalIgnoreCase);
+            var responseBody = isBrowserClient ? result with { RefreshToken = null } : result;
+
+            return Results.Ok(responseBody);
+        }).RequireRateLimiting("LoginRateLimit").WithValidation<LoginRequest>();
 
         authGroup.MapPost("/refresh", async (RefreshTokenRequest? req, HttpContext ctx, IAuthService auth) =>
         {
@@ -82,7 +87,11 @@ public static class ApiEndpoints
                 SetRefreshTokenCookie(ctx, result.RefreshToken);
             }
 
-            return Results.Ok(result);
+            // A3: Omit refresh token from body for browser clients
+            var isBrowserClient = !string.Equals(ctx.Request.Headers["X-Client-Type"], "mobile", StringComparison.OrdinalIgnoreCase);
+            var responseBody = isBrowserClient ? result with { RefreshToken = null } : result;
+
+            return Results.Ok(responseBody);
         }).RequireRateLimiting("RefreshRateLimit");
 
         authGroup.MapPost("/logout", async (HttpContext ctx, IAuthService auth) =>
@@ -134,7 +143,7 @@ public static class ApiEndpoints
         {
             await auth.AdminRevokeUserSessionsAsync(userId);
             return Results.Ok(new { message = $"Đã thu hồi toàn bộ phiên đăng nhập của người dùng {userId}." });
-        }).RequireAuthorization("RequireAdmin");
+        }).RequireAuthorization("Permission:USER.MANAGE");
 
         authGroup.MapGet("/me", async (IAuthService auth) =>
         {
@@ -142,39 +151,39 @@ public static class ApiEndpoints
             return Results.Ok(profile);
         }).RequireAuthorization();
 
-        // 3. CUSTOMERS (Protected - Requires Auth)
-        var custGroup = app.MapGroup("/api/v1/customers").WithTags("Customers").RequireAuthorization();
+        // 3. CUSTOMERS (Protected - Granular permissions)
+        var custGroup = app.MapGroup("/api/v1/customers").WithTags("Customers");
         custGroup.MapGet("/", async (int? page, int? pageSize, string? search, ICustomerService svc) =>
         {
             var result = await svc.GetCustomersAsync(page ?? 1, pageSize ?? 20, search);
             return Results.Ok(result);
-        });
+        }).RequireAuthorization("Permission:CUSTOMER.READ");
 
         custGroup.MapGet("/{id:long}", async (long id, ICustomerService svc) =>
         {
             var result = await svc.GetByIdAsync(id);
             return Results.Ok(result);
-        });
+        }).RequireAuthorization("Permission:CUSTOMER.READ");
 
         custGroup.MapPost("/", async (CreateCustomerRequest req, ICustomerService svc) =>
         {
             var result = await svc.CreateAsync(req);
             return Results.Created($"/api/v1/customers/{result.CustomerId}", result);
-        });
+        }).RequireAuthorization("Permission:CUSTOMER.WRITE").WithValidation<CreateCustomerRequest>();
 
-        // 4. DEVICES (Protected - Requires Auth)
-        var devGroup = app.MapGroup("/api/v1/devices").WithTags("Devices").RequireAuthorization();
+        // 4. DEVICES (Protected - Granular permissions)
+        var devGroup = app.MapGroup("/api/v1/devices").WithTags("Devices");
         devGroup.MapGet("/customer/{customerId:long}", async (long customerId, IDeviceService svc) =>
         {
             var result = await svc.GetCustomerDevicesAsync(customerId);
             return Results.Ok(result);
-        });
+        }).RequireAuthorization("Permission:DEVICE.READ");
 
         devGroup.MapPost("/", async (RegisterDeviceRequest req, IDeviceService svc) =>
         {
             var result = await svc.RegisterDeviceAsync(req);
             return Results.Created($"/api/v1/devices/{result.DeviceId}", result);
-        });
+        }).RequireAuthorization("Permission:DEVICE.WRITE");
 
         // 5. APPOINTMENTS
         var apptGroup = app.MapGroup("/api/v1/appointments").WithTags("Appointments");
@@ -190,63 +199,79 @@ public static class ApiEndpoints
                 message = "Đặt lịch sửa chữa thành công!",
                 data = result
             });
-        });
+        }).WithValidation<BookAppointmentRequest>();
 
-        // Public tracking: safe query for customer's own appointment/ticket without leaking all records
-        apptGroup.MapGet("/track", async (string? keyword, IAppointmentService apptSvc, IRepairService repairSvc) =>
+        // A6: Public tracking - requires both Code and Phone with masking
+        apptGroup.MapGet("/track", async (string? code, string? phone, string? keyword, IAppointmentService apptSvc, IRepairService repairSvc) =>
         {
-            if (string.IsNullOrWhiteSpace(keyword))
+            var lookupCode = code;
+            var lookupPhone = phone;
+
+            if (string.IsNullOrWhiteSpace(lookupCode) && !string.IsNullOrWhiteSpace(keyword) && keyword.Contains('|'))
             {
-                return Results.BadRequest(new { message = "Vui lòng cung cấp mã lịch hẹn, mã phiếu hoặc số điện thoại." });
+                var parts = keyword.Split('|', 2);
+                lookupCode = parts[0].Trim();
+                lookupPhone = parts[1].Trim();
             }
 
-            var appt = await apptSvc.TrackAppointmentAsync(keyword);
+            if (string.IsNullOrWhiteSpace(lookupCode) || string.IsNullOrWhiteSpace(lookupPhone))
+            {
+                return Results.BadRequest(new { message = "Vui lòng cung cấp cả Mã tra cứu (Mã lịch hẹn/Mã phiếu) và Số điện thoại đăng ký." });
+            }
+
+            var appt = await apptSvc.TrackAppointmentAsync(lookupCode, lookupPhone);
             if (appt != null)
             {
                 return Results.Ok(new { found = true, type = "APPOINTMENT", data = appt });
             }
 
-            return Results.Ok(new { found = false, message = "Không tìm thấy thông tin lịch hẹn phù hợp." });
-        });
+            var ticket = await repairSvc.TrackTicketAsync(lookupCode, lookupPhone);
+            if (ticket != null)
+            {
+                return Results.Ok(new { found = true, type = "REPAIR_TICKET", data = ticket });
+            }
+
+            return Results.Ok(new { found = false, message = "Không tìm thấy thông tin lịch hẹn hoặc phiếu sửa chữa phù hợp với mã và số điện thoại đã cung cấp." });
+        }).RequireRateLimiting("TrackingRateLimit");
 
         // Administrative query (Protected)
         apptGroup.MapGet("/", async (int? page, int? pageSize, string? status, IAppointmentService svc) =>
         {
             var result = await svc.GetAppointmentsAsync(page ?? 1, pageSize ?? 20, status);
             return Results.Ok(result);
-        }).RequireAuthorization();
+        }).RequireAuthorization("Permission:APPOINTMENT.MANAGE");
 
-        // 6. REPAIR TICKETS (Protected - Requires Auth)
-        var repairGroup = app.MapGroup("/api/v1/repairs").WithTags("Repairs").RequireAuthorization();
+        // 6. REPAIR TICKETS (Protected - Granular permissions)
+        var repairGroup = app.MapGroup("/api/v1/repairs").WithTags("Repairs");
         repairGroup.MapGet("/", async (int? page, int? pageSize, string? status, IRepairService svc) =>
         {
             var result = await svc.GetTicketsAsync(page ?? 1, pageSize ?? 20, status);
             return Results.Ok(result);
-        });
+        }).RequireAuthorization("Permission:REPAIR.READ");
 
         repairGroup.MapGet("/{id:long}", async (long id, IRepairService svc) =>
         {
             var result = await svc.GetByIdAsync(id);
             return Results.Ok(result);
-        });
+        }).RequireAuthorization("Permission:REPAIR.READ");
 
         repairGroup.MapPost("/", async (CreateRepairTicketRequest req, IRepairService svc) =>
         {
             var result = await svc.CreateTicketAsync(req);
             return Results.Created($"/api/v1/repairs/{result.RepairTicketId}", result);
-        });
+        }).RequireAuthorization("Permission:REPAIR.INTAKE").WithValidation<CreateRepairTicketRequest>();
 
         repairGroup.MapPost("/{id:long}/assign", async (long id, AssignTechnicianRequest req, IRepairService svc) =>
         {
             var result = await svc.AssignTechnicianAsync(id, req);
             return Results.Ok(result);
-        });
+        }).RequireAuthorization("Permission:REPAIR.ASSIGN");
 
         repairGroup.MapPost("/{id:long}/status", async (long id, UpdateRepairStatusRequest req, IRepairService svc) =>
         {
             var result = await svc.UpdateStatusAsync(id, req);
             return Results.Ok(result);
-        });
+        }).RequireAuthorization("Permission:REPAIR.UPDATE_STATUS").WithValidation<UpdateRepairStatusRequest>();
 
         // 7. DIAGNOSTICS & QUICK-SYNC
         var diagGroup = app.MapGroup("/api/v1/diagnostics").WithTags("Diagnostics");
@@ -278,41 +303,41 @@ public static class ApiEndpoints
         {
             var runId = await svc.SaveDiagnosticRunAsync(req);
             return Results.Ok(new { success = true, diagnosticRunId = runId });
-        }).RequireAuthorization();
+        }).RequireAuthorization("Permission:REPAIR.DIAGNOSE");
 
-        // 8. QUOTATIONS (Protected - Requires Auth)
-        var quoteGroup = app.MapGroup("/api/v1/quotations").WithTags("Quotations").RequireAuthorization();
+        // 8. QUOTATIONS (Protected - Granular permissions)
+        var quoteGroup = app.MapGroup("/api/v1/quotations").WithTags("Quotations");
         quoteGroup.MapGet("/{id:long}", async (long id, IQuotationService svc) =>
         {
             var result = await svc.GetByIdAsync(id);
             return Results.Ok(result);
-        });
+        }).RequireAuthorization("Permission:REPAIR.READ");
 
         quoteGroup.MapPost("/repairs/{ticketId:long}", async (long ticketId, CreateQuotationRequest req, IQuotationService svc) =>
         {
             var result = await svc.CreateQuotationAsync(req with { RepairTicketId = ticketId });
             return Results.Created($"/api/v1/quotations/{result.QuotationId}", result);
-        });
+        }).RequireAuthorization("Permission:QUOTE.MANAGE").WithValidation<CreateQuotationRequest>();
 
         quoteGroup.MapPost("/{id:long}/decision", async (long id, QuotationApprovalRequest req, IQuotationService svc) =>
         {
             var result = await svc.ApproveOrRejectAsync(id, req);
             return Results.Ok(result);
-        });
+        }).RequireAuthorization("Permission:QUOTE.APPROVE");
 
-        // 9. INVENTORY (Protected - Requires Auth)
-        var invGroup = app.MapGroup("/api/v1/inventory").WithTags("Inventory").RequireAuthorization();
+        // 9. INVENTORY (Protected - Granular permissions)
+        var invGroup = app.MapGroup("/api/v1/inventory").WithTags("Inventory");
         invGroup.MapGet("/stock/{branchId:int}", async (int branchId, IInventoryService svc) =>
         {
             var result = await svc.GetBranchPartsAsync(branchId);
             return Results.Ok(result);
-        });
+        }).RequireAuthorization("Permission:INVENTORY.READ");
 
         invGroup.MapPost("/issue", async (IssuePartRequest req, IInventoryService svc) =>
         {
             await svc.IssuePartToTicketAsync(req);
             return Results.Ok(new { success = true, message = "Xuất linh kiện thành công!" });
-        });
+        }).RequireAuthorization("Permission:INVENTORY.TRANSACT").WithValidation<IssuePartRequest>();
 
         return app;
     }

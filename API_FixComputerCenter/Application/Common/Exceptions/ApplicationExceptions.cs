@@ -1,4 +1,4 @@
-﻿namespace API_FixComputerCenter.Application.Common.Exceptions;
+namespace API_FixComputerCenter.Application.Common.Exceptions;
 
 public class NotFoundException : Exception
 {
@@ -13,6 +13,16 @@ public class ValidationException : Exception
     public ValidationException() : base("One or more validation failures have occurred.")
     {
         Errors = new Dictionary<string, string[]>();
+    }
+
+    public ValidationException(string message) : base(message)
+    {
+        Errors = new Dictionary<string, string[]> { { "General", new[] { message } } };
+    }
+
+    public ValidationException(string propertyName, string message) : base(message)
+    {
+        Errors = new Dictionary<string, string[]> { { propertyName, new[] { message } } };
     }
 
     public ValidationException(IDictionary<string, string[]> errors) : this()
@@ -30,4 +40,3 @@ public class UnauthorizedException : Exception
 {
     public UnauthorizedException(string message = "Authentication is required to access this resource.") : base(message) { }
 }
-

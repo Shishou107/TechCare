@@ -52,7 +52,7 @@ public interface IAppointmentService
 {
     Task<PagedResult<AppointmentDto>> GetAppointmentsAsync(int page, int pageSize, string? status, CancellationToken ct = default);
     Task<AppointmentDto> BookAppointmentAsync(BookAppointmentRequest req, CancellationToken ct = default);
-    Task<AppointmentDto?> TrackAppointmentAsync(string keyword, CancellationToken ct = default);
+    Task<AppointmentDto?> TrackAppointmentAsync(string code, string phone, CancellationToken ct = default);
 }
 
 public class AppointmentService : IAppointmentService
@@ -198,15 +198,23 @@ public class AppointmentService : IAppointmentService
         );
     }
 
-    public async Task<AppointmentDto?> TrackAppointmentAsync(string keyword, CancellationToken ct = default)
+    private static string MaskPhone(string phone)
     {
-        var clean = keyword.Trim().ToUpperInvariant();
-        if (string.IsNullOrWhiteSpace(clean)) return null;
+        if (string.IsNullOrWhiteSpace(phone) || phone.Length < 7) return phone;
+        return phone[..3] + "****" + phone[^3..];
+    }
+
+    public async Task<AppointmentDto?> TrackAppointmentAsync(string code, string phone, CancellationToken ct = default)
+    {
+        var cleanCode = code.Trim().ToUpperInvariant();
+        var cleanPhone = phone.Trim();
+        if (string.IsNullOrWhiteSpace(cleanCode) || string.IsNullOrWhiteSpace(cleanPhone)) return null;
+
 
         var appt = await _db.Appointments.AsNoTracking()
             .Include(a => a.Customer)
             .Include(a => a.Device)
-            .Where(a => a.AppointmentCode == clean || (a.Customer != null && a.Customer.Phone == keyword.Trim()))
+            .Where(a => a.AppointmentCode == cleanCode && a.Customer != null && a.Customer.Phone == cleanPhone)
             .OrderByDescending(a => a.CreatedAtUtc)
             .FirstOrDefaultAsync(ct);
 
@@ -218,7 +226,7 @@ public class AppointmentService : IAppointmentService
             appt.BranchId,
             appt.CustomerId,
             appt.Customer?.FullName ?? "",
-            appt.Customer?.Phone ?? "",
+            MaskPhone(appt.Customer?.Phone ?? ""),
             appt.DeviceId,
             appt.Device?.ModelName ?? "Laptop",
             appt.ScheduledAtUtc,

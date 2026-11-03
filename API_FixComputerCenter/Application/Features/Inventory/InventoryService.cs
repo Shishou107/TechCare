@@ -83,7 +83,7 @@ public class InventoryService : IInventoryService
         // C4: Server-side validation
         if (req.Quantity <= 0)
         {
-            throw new ValidationException("Số lượng linh kiện xuất kho phải lớn hơn 0.");
+            throw new Common.Exceptions.ValidationException("Số lượng linh kiện xuất kho phải lớn hơn 0.");
         }
 
         // C2: Atomic single transaction for stock deduction, ledger entry, and repair part linkage

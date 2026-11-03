@@ -318,7 +318,7 @@ public class RepairService : IRepairService
 
         if (!AllowedStatuses.Contains(toStatus))
         {
-            throw new ValidationException($"Trạng thái '{req.NewStatus}' không hợp lệ. Các trạng thái được phép: {string.Join(", ", AllowedStatuses)}.");
+            throw new Common.Exceptions.ValidationException($"Trạng thái '{req.NewStatus}' không hợp lệ. Các trạng thái được phép: {string.Join(", ", AllowedStatuses)}.");
         }
 
         ticket.Status = toStatus;
@@ -356,6 +356,12 @@ public class RepairService : IRepairService
         return await GetByIdAsync(ticket.RepairTicketId, ct);
     }
 
+    private static string MaskPhone(string phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone) || phone.Length < 7) return phone;
+        return phone[..3] + "****" + phone[^3..];
+    }
+
     public async Task<RepairTicketDto?> TrackTicketAsync(string code, string phone, CancellationToken ct = default)
     {
         var cleanCode = code.Trim().ToUpperInvariant();
@@ -375,7 +381,7 @@ public class RepairService : IRepairService
             ticket.BranchId,
             ticket.CustomerId,
             ticket.Customer?.FullName ?? "",
-            ticket.Customer?.Phone ?? "",
+            MaskPhone(ticket.Customer?.Phone ?? ""),
             ticket.DeviceId,
             ticket.Device?.ModelName ?? "",
             ticket.Device?.SerialNumber,

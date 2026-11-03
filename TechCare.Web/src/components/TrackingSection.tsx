@@ -12,7 +12,8 @@ interface TicketInfo {
 }
 
 export function TrackingSection() {
-  const [keyword, setKeyword] = useState('')
+  const [code, setCode] = useState('')
+  const [phone, setPhone] = useState('')
   const [loading, setLoading] = useState(false)
   const [ticket, setTicket] = useState<TicketInfo | null>(null)
   const [searched, setSearched] = useState(false)
@@ -20,7 +21,11 @@ export function TrackingSection() {
 
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!keyword.trim()) return
+    if (!code.trim() || !phone.trim()) {
+      setErrorMessage('Vui lòng nhập cả Mã phiếu/đơn và Số điện thoại để tra cứu bảo mật.')
+      setSearched(true)
+      return
+    }
 
     setLoading(true)
     setSearched(true)
@@ -28,26 +33,31 @@ export function TrackingSection() {
     setErrorMessage(null)
 
     try {
-      // Safe, dedicated tracking endpoint (no data leaks of other customers)
-      const res = await fetch(`${API_BASE_URL}/api/v1/appointments/track?keyword=${encodeURIComponent(keyword.trim())}`)
+      // Safe, dedicated tracking endpoint (requires both Code and Phone for data privacy)
+      const queryParams = new URLSearchParams({
+        code: code.trim(),
+        phone: phone.trim()
+      })
+      const res = await fetch(`${API_BASE_URL}/api/v1/appointments/track?${queryParams.toString()}`)
       if (res.ok) {
         const result = await res.json()
         if (result && result.found && result.data) {
           const found = result.data
           setTicket({
-            code: found.appointmentCode || found.ticketCode || keyword.toUpperCase(),
+            code: found.appointmentCode || found.ticketCode || code.trim().toUpperCase(),
             customerName: found.customerName || 'Khách hàng',
-            phone: found.customerPhone || '',
+            phone: found.customerPhone || phone.trim(),
             modelName: found.modelName || 'Laptop',
             status: found.status || 'BOOKED',
             scheduledAt: found.scheduledAtUtc ? new Date(found.scheduledAtUtc).toLocaleString('vi-VN') : 'Đang xử lý',
             issue: found.customerDescription || found.subject || found.customerIssue || 'Kiểm tra phần cứng tổng thể',
           })
         } else {
-          setErrorMessage(result.message || 'Không tìm thấy thông tin đơn hẹn hoặc phiếu sửa chữa.')
+          setErrorMessage(result.message || 'Không tìm thấy thông tin đơn hẹn hoặc phiếu sửa chữa phù hợp.')
         }
       } else {
-        setErrorMessage('Không thể tra cứu vào lúc này. Vui lòng thử lại sau.')
+        const err = await res.json().catch(() => null)
+        setErrorMessage(err?.message || 'Không thể tra cứu vào lúc này. Vui lòng kiểm tra lại thông tin.')
       }
     } catch {
       setErrorMessage('Lỗi kết nối đến máy chủ. Vui lòng kiểm tra lại mạng hoặc thử lại sau.')
@@ -85,16 +95,24 @@ export function TrackingSection() {
           <h2>Tra cứu đơn sửa & Bảo hành.</h2>
         </div>
         <p className="section-intro">
-          Nhập mã phiếu hẹn hoặc số điện thoại của bạn để theo dõi trực tiếp tình trạng máy theo thời gian thực.
+          Nhập mã phiếu hẹn hoặc mã sửa chữa cùng số điện thoại đăng ký của bạn để theo dõi tiến trình trực tiếp theo thời gian thực.
         </p>
       </div>
 
-      <form className="tracking-search-bar" onSubmit={handleLookup}>
+      <form className="tracking-search-bar" onSubmit={handleLookup} style={{ flexWrap: 'wrap' }}>
         <input
           type="text"
-          placeholder="Nhập mã phiếu hẹn (VD: APPT-984942, TC-2611...) hoặc số điện thoại"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+          placeholder="Mã hẹn / Mã phiếu (VD: APPT-123456, TC-2611...)"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          style={{ minWidth: '240px' }}
+        />
+        <input
+          type="tel"
+          placeholder="Số điện thoại đăng ký (VD: 0901234567)"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          style={{ minWidth: '180px' }}
         />
         <button type="submit" className="button" disabled={loading}>
           {loading ? 'Đang tra cứu...' : 'Tra cứu tiến trình'} <span>→</span>
@@ -138,9 +156,9 @@ export function TrackingSection() {
 
       {searched && !ticket && !loading && (
         <div className="no-result-card">
-          <p>Không tìm thấy phiếu sửa chữa khớp với từ khóa <strong>"{keyword}"</strong>.</p>
-          <span style={{ fontSize: '12px', color: '#777', display: 'block', marginTop: '6px' }}>
-            {errorMessage || 'Vui lòng kiểm tra lại số điện thoại hoặc mã phiếu được cấp khi gửi yêu cầu.'}
+          <p>Không tìm thấy phiếu sửa chữa khớp với thông tin đã nhập.</p>
+          <span style={{ fontSize: '12.5px', color: '#c53030', display: 'block', marginTop: '6px' }}>
+            {errorMessage || 'Vui lòng kiểm tra lại chính xác Mã phiếu và Số điện thoại đã đăng ký.'}
           </span>
         </div>
       )}

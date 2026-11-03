@@ -1,4 +1,5 @@
-﻿import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { SYSTEM_NOTIFICATIONS } from './data/notifications'
 import { KindredCanvas } from './components/KindredCanvas'
 import { BookingSection } from './components/BookingSection'
 import { TrackingSection } from './components/TrackingSection'
@@ -12,6 +13,41 @@ export default function App() {
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [isNotifOpen, setIsNotifOpen] = useState(false)
   const [pricingBrand, setPricingBrand] = useState('ALL')
+
+  // Notification state with unread count persisted in localStorage
+  const [readNotifIds, setReadNotifIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('techcare_read_notifs')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+
+  const unreadCount = SYSTEM_NOTIFICATIONS.filter((n) => !readNotifIds.includes(n.id)).length
+
+  const openNotifications = () => {
+    setIsNotifOpen(true)
+    const allIds = SYSTEM_NOTIFICATIONS.map((n) => n.id)
+    setReadNotifIds(allIds)
+    try {
+      localStorage.setItem('techcare_read_notifs', JSON.stringify(allIds))
+    } catch (e) {
+      console.warn(e)
+    }
+  }
+
+  // Close modals on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsNotifOpen(false)
+        setIsLoginOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const switchTab = (tab: TabType, issue = '') => {
     if (issue) setSelectedIssue(issue)
@@ -121,7 +157,7 @@ export default function App() {
             <svg className="brand-wrench" viewBox="0 0 20 20">
               <path d="M14.5 1.5a4.5 4.5 0 00-4.3 5.8L1.8 15.7a1.8 1.8 0 002.5 2.5l8.4-8.4a4.5 4.5 0 005.8-4.3l-2.6 2.6-2.4-.6-.6-2.4z" />
             </svg>
-            <span>FixLab</span>
+            <span>TechCare</span>
           </div>
 
           <nav className="nav-tabs">
@@ -176,14 +212,14 @@ export default function App() {
             <button
               type="button"
               className="icon-btn"
-              onClick={() => setIsNotifOpen(true)}
+              onClick={openNotifications}
               title="Thông báo"
             >
               <svg viewBox="0 0 24 24">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
                 <path d="M13.73 21a2 2 0 0 1-3.46 0" />
               </svg>
-              <span className="notification-badge-dot"></span>
+              {unreadCount > 0 && <span className="notif-badge-count">{unreadCount}</span>}
             </button>
 
             {/* User Login Icon */}
@@ -469,7 +505,7 @@ export default function App() {
                 <h2>Tin tưởng từ trải nghiệm thật.</h2>
               </div>
               <p className="section-intro">
-                Hơn 25.000 khách hàng đã phục hồi thiết bị làm việc của họ tại xưởng FixLab.
+                Hơn 25.000 khách hàng đã phục hồi thiết bị làm việc của họ tại xưởng TechCare.
               </p>
             </div>
 
@@ -504,7 +540,7 @@ export default function App() {
                 <div>
                   <div className="stars">★★★★★</div>
                   <p>
-                    "MacBook Pro M1 bị vào nước cà phê tưởng phải thay cả cụm mainboard hãng báo mười mấy triệu, qua FixLab được cứu sống với giá rất hợp lý."
+                    "MacBook Pro M1 bị vào nước cà phê tưởng phải thay cả cụm mainboard hãng báo mười mấy triệu, qua TechCare được cứu sống với giá rất hợp lý."
                   </p>
                 </div>
                 <div className="review-author">
@@ -673,7 +709,7 @@ export default function App() {
       {/* 7. FOOTER */}
       <footer className="footer">
         <div className="footer-caption">
-          <strong>FixLab (Mạch Laptop)</strong> — Chăm sóc máy tính chuẩn chuyên gia · Hotline: 0909 123 456 · 8:00 - 21:00 hàng ngày
+          <strong>TechCare</strong> — Chăm sóc máy tính chuẩn chuyên gia · Hotline: 0909 123 456 · 8:00 - 21:00 hàng ngày
         </div>
         <a href="#" className="back-top" onClick={scrollToTop}>
           Về đầu trang ↑
@@ -683,22 +719,59 @@ export default function App() {
       {/* 8. NOTIFICATION MODAL */}
       {isNotifOpen && (
         <div className="modal-backdrop" onClick={() => setIsNotifOpen(false)}>
-          <div className="modal-card" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card notif-modal-card" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Thông báo hệ thống</h3>
+              <div>
+                <div className="eyebrow" style={{ textAlign: 'left', marginBottom: '4px' }}>HỆ THỐNG TECHCARE</div>
+                <h3>Thông báo hệ thống</h3>
+              </div>
               <button type="button" className="close-btn" onClick={() => setIsNotifOpen(false)}>
                 ✕
               </button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ padding: '12px 14px', background: '#fbfbf9', border: '1px solid #e4e4e0', borderRadius: '8px' }}>
-                <strong style={{ fontSize: '13px', display: 'block', color: '#111' }}>Tiệm đang mở cửa nhận máy</strong>
-                <span style={{ fontSize: '12px', color: '#666' }}>Xưởng kỹ thuật hoạt động liên tục từ 8:00 đến 21:00 hôm nay.</span>
-              </div>
-              <div style={{ padding: '12px 14px', background: '#fbfbf9', border: '1px solid #e4e4e0', borderRadius: '8px' }}>
-                <strong style={{ fontSize: '13px', display: 'block', color: '#111' }}>Đã nâng cấp Script Quét Cấu Hình</strong>
-                <span style={{ fontSize: '12px', color: '#666' }}>Hỗ trợ nhận diện tự động CPU Intel Core Ultra và AMD Ryzen 8000 series.</span>
-              </div>
+            <div className="notif-modal-list">
+              {SYSTEM_NOTIFICATIONS.map((notif) => {
+                const tagClass =
+                  notif.type === 'OPENING_HOURS'
+                    ? 'notif-tag-hours'
+                    : notif.type === 'UPDATE'
+                    ? 'notif-tag-update'
+                    : 'notif-tag-promo'
+
+                const tagLabel =
+                  notif.type === 'OPENING_HOURS'
+                    ? '🟢 Giờ hoạt động'
+                    : notif.type === 'UPDATE'
+                    ? '⚡ Bản nâng cấp'
+                    : '🎁 Ưu đãi'
+
+                return (
+                  <div key={notif.id} className="notif-card-item">
+                    <div className="notif-item-header">
+                      <span className={`notif-tag ${tagClass}`}>{tagLabel}</span>
+                      <span className="notif-time">{notif.time}</span>
+                    </div>
+                    <h4 style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--ink)', marginBottom: '4px' }}>
+                      {notif.title}
+                    </h4>
+                    <p style={{ fontSize: '12px', color: '#555', lineHeight: 1.5, margin: '4px 0 8px' }}>
+                      {notif.content}
+                    </p>
+                    {notif.action && (
+                      <button
+                        type="button"
+                        className="notif-action-btn"
+                        onClick={() => {
+                          switchTab(notif.action!.tab)
+                          setIsNotifOpen(false)
+                        }}
+                      >
+                        {notif.action.label} <span>→</span>
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -710,7 +783,7 @@ export default function App() {
           <div className="modal-card" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <div className="eyebrow" style={{ textAlign: 'left', marginBottom: '4px' }}>HỆ THỐNG FIXLAB</div>
+                <div className="eyebrow" style={{ textAlign: 'left', marginBottom: '4px' }}>HỆ THỐNG TECHCARE</div>
                 <h3>Đăng nhập</h3>
               </div>
               <button type="button" className="close-btn" onClick={() => setIsLoginOpen(false)}>

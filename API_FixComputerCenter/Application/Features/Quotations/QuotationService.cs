@@ -111,102 +111,117 @@ public class QuotationService : IQuotationService
 
     public async Task<QuotationDto> CreateQuotationAsync(CreateQuotationRequest req, CancellationToken ct = default)
     {
-        using var tx = await _db.Database.BeginTransactionAsync(ct);
-
-        var ticket = await _db.RepairTickets.FirstOrDefaultAsync(t => t.RepairTicketId == req.RepairTicketId, ct)
-            ?? throw new NotFoundException(nameof(RepairTicket), req.RepairTicketId);
-
-        decimal subtotal = 0;
-        var items = new List<QuotationItem>();
-
-        foreach (var itm in req.Items)
+        const int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            var qty = Math.Max(1, itm.Quantity);
-            var itemDiscount = itm.DiscountAmount ?? 0;
-            var lineTotal = (itm.UnitPrice * qty) - itemDiscount;
-            subtotal += lineTotal;
-
-            items.Add(new QuotationItem
+            try
             {
-                ItemType = itm.ItemType.ToUpperInvariant(),
-                PartId = itm.PartId,
-                Description = itm.Description.Trim(),
-                Quantity = qty,
-                UnitPrice = itm.UnitPrice,
-                DiscountAmount = itemDiscount,
-                CustomerDecision = "PENDING"
-            });
-        }
+                using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        // B5: Compute VersionNumber = max + 1
-        var maxVersion = await _db.Quotations
-            .Where(x => x.RepairTicketId == ticket.RepairTicketId)
-            .MaxAsync(x => (int?)x.VersionNumber, ct) ?? 0;
-        var nextVersion = maxVersion + 1;
+                var ticket = await _db.RepairTickets.FirstOrDefaultAsync(t => t.RepairTicketId == req.RepairTicketId, ct)
+                    ?? throw new NotFoundException(nameof(RepairTicket), req.RepairTicketId);
 
-        // C1: Generate unique quotation code with collision retry
-        string qCode = string.Empty;
-        for (int attempt = 0; attempt < 5; attempt++)
-        {
-            var candidate = "BG-" + DateTime.UtcNow.ToString("yyMMdd") + "-" + Random.Shared.Next(1000, 9999);
-            if (!await _db.Quotations.AnyAsync(q => q.QuotationCode == candidate, ct))
+                decimal subtotal = 0;
+                var items = new List<QuotationItem>();
+
+                foreach (var itm in req.Items)
+                {
+                    var qty = Math.Max(1, itm.Quantity);
+                    var itemDiscount = itm.DiscountAmount ?? 0;
+                    var lineTotal = (itm.UnitPrice * qty) - itemDiscount;
+                    subtotal += lineTotal;
+
+                    items.Add(new QuotationItem
+                    {
+                        ItemType = itm.ItemType.ToUpperInvariant(),
+                        PartId = itm.PartId,
+                        Description = itm.Description.Trim(),
+                        Quantity = qty,
+                        UnitPrice = itm.UnitPrice,
+                        DiscountAmount = itemDiscount,
+                        CustomerDecision = "PENDING"
+                    });
+                }
+
+                // Compute VersionNumber = max + 1
+                var maxVersion = await _db.Quotations
+                    .Where(x => x.RepairTicketId == ticket.RepairTicketId)
+                    .MaxAsync(x => (int?)x.VersionNumber, ct) ?? 0;
+                var nextVersion = maxVersion + 1;
+
+                // Generate unique quotation code with collision retry
+                string qCode = string.Empty;
+                for (int codeAttempt = 0; codeAttempt < 5; codeAttempt++)
+                {
+                    var candidate = "BG-" + DateTime.UtcNow.ToString("yyMMdd") + "-" + Random.Shared.Next(1000, 9999);
+                    if (!await _db.Quotations.AnyAsync(q => q.QuotationCode == candidate, ct))
+                    {
+                        qCode = candidate;
+                        break;
+                    }
+                }
+                if (string.IsNullOrEmpty(qCode))
+                {
+                    qCode = "BG-" + DateTime.UtcNow.ToString("yyMMdd") + "-" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant();
+                }
+
+                var creatorId = _currentUser.UserId;
+                if (!creatorId.HasValue)
+                {
+                    var fallbackUser = await _db.Users.Select(u => u.UserId).FirstOrDefaultAsync(ct);
+                    creatorId = fallbackUser != 0 ? fallbackUser : 1;
+                }
+
+                var quotation = new Quotation
+                {
+                    RepairTicketId = ticket.RepairTicketId,
+                    QuotationCode = qCode,
+                    VersionNumber = nextVersion,
+                    QuotationType = req.QuotationType ?? "INITIAL",
+                    Status = "SENT",
+                    IssuedAtUtc = DateTime.UtcNow,
+                    ValidUntilUtc = req.ValidUntilUtc ?? DateTime.UtcNow.AddDays(7),
+                    Subtotal = subtotal,
+                    DiscountAmount = req.DiscountAmount,
+                    TaxAmount = req.TaxAmount,
+                    CustomerNote = req.CustomerNote?.Trim(),
+                    CreatedByUserId = creatorId,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    QuotationItems = items
+                };
+
+                _db.Quotations.Add(quotation);
+
+                var oldTicketStatus = ticket.Status;
+                ticket.Status = "WAITING_APPROVAL";
+                ticket.UpdatedAtUtc = DateTime.UtcNow;
+
+                _db.TicketStatusHistories.Add(new TicketStatusHistory
+                {
+                    RepairTicketId = ticket.RepairTicketId,
+                    OldStatus = oldTicketStatus,
+                    NewStatus = "WAITING_APPROVAL",
+                    ChangedByUserId = creatorId,
+                    ChangedAtUtc = DateTime.UtcNow,
+                    Note = $"Đã xuất báo giá {qCode} phiên bản {nextVersion}"
+                });
+
+                await _db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+
+                await _audit.LogAsync("CREATE_QUOTATION", nameof(Quotation), quotation.QuotationId.ToString(), null, quotation, ct);
+
+                return await GetByIdAsync(quotation.QuotationId, ct);
+            }
+            catch (DbUpdateException) when (attempt < maxAttempts)
             {
-                qCode = candidate;
-                break;
+                // Concurrency retry on UQ_Quote_TicketVersion or unique quotation code collision
+                _db.ChangeTracker.Clear();
+                await Task.Delay(50 * attempt, ct);
             }
         }
-        if (string.IsNullOrEmpty(qCode))
-        {
-            qCode = "BG-" + DateTime.UtcNow.ToString("yyMMdd") + "-" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant();
-        }
 
-        var creatorId = _currentUser.UserId;
-        if (!creatorId.HasValue)
-        {
-            var fallbackUser = await _db.Users.Select(u => u.UserId).FirstOrDefaultAsync(ct);
-            creatorId = fallbackUser != 0 ? fallbackUser : 1;
-        }
-
-        var quotation = new Quotation
-        {
-            RepairTicketId = ticket.RepairTicketId,
-            QuotationCode = qCode,
-            VersionNumber = nextVersion,
-            QuotationType = req.QuotationType ?? "INITIAL",
-            Status = "SENT",
-            IssuedAtUtc = DateTime.UtcNow,
-            ValidUntilUtc = req.ValidUntilUtc ?? DateTime.UtcNow.AddDays(7),
-            Subtotal = subtotal,
-            DiscountAmount = req.DiscountAmount,
-            TaxAmount = req.TaxAmount,
-            CustomerNote = req.CustomerNote?.Trim(),
-            CreatedByUserId = creatorId,
-            CreatedAtUtc = DateTime.UtcNow,
-            QuotationItems = items
-        };
-
-        _db.Quotations.Add(quotation);
-
-        // B1: Conforms with SQL CK_Ticket_Status (WAITING_APPROVAL)
-        ticket.Status = "WAITING_APPROVAL";
-        ticket.UpdatedAtUtc = DateTime.UtcNow;
-
-        _db.TicketStatusHistories.Add(new TicketStatusHistory
-        {
-            RepairTicketId = ticket.RepairTicketId,
-            OldStatus = ticket.Status,
-            NewStatus = "WAITING_APPROVAL",
-            ChangedByUserId = creatorId,
-            ChangedAtUtc = DateTime.UtcNow,
-            Note = $"Đã xuất báo giá {qCode} phiên bản {nextVersion}"
-        });
-
-        await _db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-
-        await _audit.LogAsync("CREATE_QUOTATION", nameof(Quotation), quotation.QuotationId.ToString(), null, quotation, ct);
-
-        return await GetByIdAsync(quotation.QuotationId, ct);
+        throw new DomainException("Không thể tạo báo giá do xung đột phiên bản đồng thời. Vui lòng thử lại.");
     }
 
     public async Task<QuotationDto> ApproveOrRejectAsync(long quotationId, QuotationApprovalRequest req, CancellationToken ct = default)

@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 
 namespace API_FixComputerCenter;
@@ -54,6 +55,7 @@ public static class DependencyInjection
         // 3. FluentValidation & MemoryCache
         services.AddMemoryCache();
         services.AddValidatorsFromAssemblyContaining<CreateCustomerValidator>();
+        services.AddHostedService<SessionCleanupBackgroundService>();
 
         // 4. Authentication (JWT Bearer)
         var jwtKey = configuration["Jwt:Key"]
@@ -163,6 +165,25 @@ public static class DependencyInjection
             options.AddPolicy("RequireAdmin", policy => policy.RequireRole("ADMIN"));
             options.AddPolicy("RequireTechnician", policy => policy.RequireRole("ADMIN", "TECHNICIAN"));
             options.AddPolicy("RequireInventory", policy => policy.RequireRole("ADMIN", "INVENTORY"));
+
+            // Granular permission policies mapped to SQL Security.Permissions
+            var permissions = new[]
+            {
+                "CUSTOMER.READ", "CUSTOMER.WRITE",
+                "DEVICE.READ", "DEVICE.WRITE",
+                "APPOINTMENT.MANAGE",
+                "REPAIR.READ", "REPAIR.INTAKE", "REPAIR.ASSIGN", "REPAIR.DIAGNOSE", "REPAIR.UPDATE_STATUS",
+                "QUOTE.MANAGE", "QUOTE.APPROVE",
+                "INVENTORY.READ", "INVENTORY.TRANSACT",
+                "BILLING.READ", "BILLING.COLLECT",
+                "WARRANTY.MANAGE", "REPORT.READ",
+                "USER.MANAGE", "ROLE.MANAGE", "AUDIT.READ"
+            };
+
+            foreach (var perm in permissions)
+            {
+                options.AddPolicy($"Permission:{perm}", policy => policy.AddRequirements(new PermissionRequirement(perm)));
+            }
         });
         services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 
@@ -191,6 +212,18 @@ public static class DependencyInjection
                     {
                         PermitLimit = 30,
                         Window = TimeSpan.FromMinutes(5),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0
+                    }));
+
+            // Public tracking rate limit (20 queries per minute per IP to prevent harvesting)
+            options.AddPolicy("TrackingRateLimit", httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 20,
+                        Window = TimeSpan.FromMinutes(1),
                         QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                         QueueLimit = 0
                     }));
