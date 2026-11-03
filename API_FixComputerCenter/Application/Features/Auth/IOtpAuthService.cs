@@ -12,3 +12,4 @@ public interface IOtpAuthService
     Task<RequestOtpResponse> RequestOtpAsync(string phoneNumber, string? ipAddress, CancellationToken ct = default);
     Task<AuthResponse> VerifyOtpAsync(VerifyOtpRequest req, string? ipAddress, string? userAgent, CancellationToken ct = default);
 }
+

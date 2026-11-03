@@ -13,3 +13,4 @@ public class OtpCode
     public string? IpAddress { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }
+

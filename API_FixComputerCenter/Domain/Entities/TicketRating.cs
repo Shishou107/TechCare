@@ -16,3 +16,4 @@ public class TicketRating
     public virtual Customer Customer { get; set; } = null!;
     public virtual User TechnicianUser { get; set; } = null!;
 }
+

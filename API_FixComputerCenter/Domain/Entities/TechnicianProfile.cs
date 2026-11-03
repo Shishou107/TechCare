@@ -19,3 +19,4 @@ public class TechnicianProfile
 
     public virtual User User { get; set; } = null!;
 }
+
