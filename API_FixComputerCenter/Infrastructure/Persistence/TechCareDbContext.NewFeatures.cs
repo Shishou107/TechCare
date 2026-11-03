@@ -16,6 +16,7 @@ public partial class TechCareDbContext
     public virtual DbSet<OtpCode> OtpCodes { get; set; } = null!;
     public virtual DbSet<TechnicianProfile> TechnicianProfiles { get; set; } = null!;
     public virtual DbSet<TicketRating> TicketRatings { get; set; } = null!;
+    public virtual DbSet<EmailToken> EmailTokens { get; set; } = null!;
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
@@ -250,6 +251,34 @@ public partial class TechCareDbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
+                modelBuilder.Entity<EmailToken>(entity =>
+        {
+            entity.ToTable("EmailTokens", "Security");
+            entity.HasKey(e => e.TokenId);
+
+            entity.Property(e => e.Email).HasMaxLength(254).IsRequired();
+            entity.Property(e => e.TokenHash).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.Purpose).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.ExpiresAtUtc).HasPrecision(0);
+            entity.Property(e => e.FailedAttempts).HasDefaultValue(0);
+            entity.Property(e => e.ConsumedAtUtc).HasPrecision(0);
+            entity.Property(e => e.IpAddress).HasMaxLength(45);
+            entity.Property(e => e.CreatedAtUtc).HasPrecision(0);
+
+            entity.HasIndex(e => new { e.Email, e.Purpose, e.CreatedAtUtc }, "IX_EmailTokens_Email_Purpose");
+            entity.HasIndex(e => new { e.UserId, e.Purpose, e.CreatedAtUtc }, "IX_EmailTokens_User_Purpose");
+
+            entity.HasOne(d => d.User)
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Appointment>(entity =>
+        {
+            entity.Property(e => e.DeliveryMethod).HasMaxLength(20).HasDefaultValue("AT_STORE").IsRequired();
+            entity.Property(e => e.PickupAddress).HasMaxLength(255);
+        });
         modelBuilder.Entity<Appointment>(entity =>
         {
             entity.HasOne(d => d.PreferredTechnicianUser)

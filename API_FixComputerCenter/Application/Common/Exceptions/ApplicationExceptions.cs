@@ -40,3 +40,12 @@ public class UnauthorizedException : Exception
 {
     public UnauthorizedException(string message = "Authentication is required to access this resource.") : base(message) { }
 }
+
+public class EmailNotVerifiedException : Exception
+{
+    public string Email { get; }
+    public EmailNotVerifiedException(string email, string message = "Tài khoản của bạn chưa được xác thực email. Vui lòng nhập mã xác thực 6 số đã được gửi đến email của bạn.") : base(message)
+    {
+        Email = email;
+    }
+}

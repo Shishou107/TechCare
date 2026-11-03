@@ -30,6 +30,7 @@ public interface ITechCareDbContext
     DbSet<Session> Sessions { get; }
     DbSet<RefreshToken> RefreshTokens { get; }
     DbSet<OtpCode> OtpCodes { get; }
+    DbSet<EmailToken> EmailTokens { get; }
     DbSet<TechnicianProfile> TechnicianProfiles { get; }
     DbSet<TicketRating> TicketRatings { get; }
     DbSet<RepairPart> RepairParts { get; }

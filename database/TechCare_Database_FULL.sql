@@ -159,6 +159,21 @@ CREATE TABLE Security.OtpCodes (
 );
 CREATE INDEX IX_OtpCodes_Phone_Active ON Security.OtpCodes (PhoneNumber, CreatedAtUtc DESC);
 
+CREATE TABLE Security.EmailTokens (
+    TokenId        bigint IDENTITY(1,1) CONSTRAINT PK_EmailTokens PRIMARY KEY,
+    UserId         bigint         NOT NULL CONSTRAINT FK_EmailTokens_User REFERENCES Security.Users(UserId) ON DELETE CASCADE,
+    Email          nvarchar(254)  NOT NULL,
+    TokenHash      varbinary(32)  NOT NULL,
+    Purpose        nvarchar(50)   NOT NULL,
+    ExpiresAtUtc   datetime2(0)   NOT NULL,
+    FailedAttempts int            NOT NULL CONSTRAINT DF_EmailTokens_Failed DEFAULT 0,
+    ConsumedAtUtc  datetime2(0)   NULL,
+    IpAddress      nvarchar(45)   NULL,
+    CreatedAtUtc   datetime2(0)   NOT NULL CONSTRAINT DF_EmailTokens_CreatedAt DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_EmailTokens_Failed CHECK (FailedAttempts >= 0)
+);
+CREATE INDEX IX_EmailTokens_Email_Purpose ON Security.EmailTokens (Email, Purpose, CreatedAtUtc DESC);
+CREATE INDEX IX_EmailTokens_User_Purpose ON Security.EmailTokens (UserId, Purpose, CreatedAtUtc DESC);
 CREATE TABLE Security.TechnicianProfiles (
     ProfileId          bigint IDENTITY(1,1) CONSTRAINT PK_TechnicianProfiles PRIMARY KEY,
     UserId             bigint         NOT NULL UNIQUE CONSTRAINT FK_TechProfile_User REFERENCES Security.Users(UserId) ON DELETE CASCADE,
@@ -233,6 +248,8 @@ CREATE TABLE CRM.Appointments(
     Status nvarchar(20) NOT NULL DEFAULT N'BOOKED',
     IssueDescription nvarchar(1000), 
     PreferredTechnicianUserId bigint NULL,
+    DeliveryMethod nvarchar(20) NOT NULL DEFAULT N'AT_STORE',
+    PickupAddress nvarchar(255) NULL,
     CreatedAtUtc datetime2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT FK_Appointments_Branch FOREIGN KEY(BranchId) REFERENCES Core.Branches(BranchId),
     CONSTRAINT FK_Appointments_Customer FOREIGN KEY(CustomerId) REFERENCES CRM.Customers(CustomerId),

@@ -74,18 +74,17 @@ public static class ApiEndpoints
             return Results.Ok(responseBody);
         }).RequireRateLimiting("LoginRateLimit").WithValidation<LoginRequest>();
 
-        authGroup.MapPost("/otp/request", async (RequestOtpRequest req, HttpContext ctx, IOtpAuthService otpSvc) =>
+        authGroup.MapPost("/register", async (RegisterCustomerRequest req, IAuthService auth) =>
         {
-            var ip = ctx.Connection.RemoteIpAddress?.ToString();
-            var res = await otpSvc.RequestOtpAsync(req.PhoneNumber, ip);
+            var res = await auth.RegisterCustomerAsync(req);
             return Results.Ok(res);
-        }).RequireRateLimiting("OtpRateLimit");
+        }).RequireRateLimiting("LoginRateLimit");
 
-        authGroup.MapPost("/otp/verify", async (VerifyOtpRequest req, HttpContext ctx, IOtpAuthService otpSvc) =>
+        authGroup.MapPost("/verify-email", async (VerifyEmailRequest req, HttpContext ctx, IAuthService auth) =>
         {
             var ip = ctx.Connection.RemoteIpAddress?.ToString();
             var ua = ctx.Request.Headers.UserAgent.ToString();
-            var result = await otpSvc.VerifyOtpAsync(req, ip, ua);
+            var result = await auth.VerifyEmailAsync(req, ip, ua);
 
             if (!string.IsNullOrEmpty(result.RefreshToken))
             {
@@ -96,7 +95,25 @@ public static class ApiEndpoints
             var responseBody = isBrowserClient ? result with { RefreshToken = null } : result;
 
             return Results.Ok(responseBody);
-        }).RequireRateLimiting("OtpRateLimit");
+        }).RequireRateLimiting("LoginRateLimit");
+
+        authGroup.MapPost("/resend-email-code", async (ResendVerificationEmailRequest req, IAuthService auth) =>
+        {
+            await auth.ResendVerificationEmailAsync(req.Email);
+            return Results.Ok(new { success = true, message = "Đã gửi lại mã xác thực vào email của bạn." });
+        }).RequireRateLimiting("LoginRateLimit");
+
+        authGroup.MapPost("/forgot-password", async (ForgotPasswordRequest req, IAuthService auth) =>
+        {
+            await auth.ForgotPasswordAsync(req.Email);
+            return Results.Ok(new { success = true, message = "Nếu email tồn tại trên hệ thống, mã xác thực đặt lại mật khẩu đã được gửi đến hộp thư của bạn." });
+        }).RequireRateLimiting("LoginRateLimit");
+
+        authGroup.MapPost("/reset-password", async (ResetPasswordRequest req, IAuthService auth) =>
+        {
+            await auth.ResetPasswordAsync(req);
+            return Results.Ok(new { success = true, message = "Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới." });
+        }).RequireRateLimiting("LoginRateLimit");
 
         authGroup.MapPost("/refresh", async (RefreshTokenRequest? req, HttpContext ctx, IAuthService auth) =>
         {
@@ -432,6 +449,32 @@ public static class ApiEndpoints
         app.MapCustomerEndpoints();
         app.MapTechnicianEndpoints();
 
+        app.MapGet("/api/v1/integrations/status", (Microsoft.Extensions.Configuration.IConfiguration config) =>
+        {
+            var ghnToken = config["TECHCARE_GHN_TOKEN"] ?? config["Shipping:Ghn:Token"];
+            var aiKey = config["TECHCARE_AI_API_KEY"] ?? config["Ai:ApiKey"];
+            var smtpHost = config["TECHCARE_SMTP_HOST"] ?? config["Email:Smtp:Host"];
+
+            return Results.Ok(new
+            {
+                shipping = new
+                {
+                    provider = "Giao Hàng Nhanh (GHN)",
+                    isConfigured = !string.IsNullOrWhiteSpace(ghnToken)
+                },
+                ai = new
+                {
+                    provider = "Meta / OpenAI Compatible",
+                    isConfigured = !string.IsNullOrWhiteSpace(aiKey)
+                },
+                email = new
+                {
+                    provider = "Email (SMTP)",
+                    isConfigured = !string.IsNullOrWhiteSpace(smtpHost),
+                    mode = !string.IsNullOrWhiteSpace(smtpHost) ? "SMTP_SERVER" : "LOG_ONLY_DEV"
+                }
+            });
+        }).RequireAuthorization("Permission:USER.MANAGE");
         return app;
     }
 

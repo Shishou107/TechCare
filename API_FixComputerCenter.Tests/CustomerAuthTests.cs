@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using API_FixComputerCenter.Application.Common.Exceptions;
 using API_FixComputerCenter.Application.Common.Interfaces;
+using API_FixComputerCenter.Application.Features.Appointments;
 using API_FixComputerCenter.Application.Features.Auth;
 using API_FixComputerCenter.Domain.Entities;
 using API_FixComputerCenter.Endpoints;
@@ -21,14 +22,14 @@ using Xunit;
 
 namespace API_FixComputerCenter.Tests;
 
-public class FakeSmsProvider : ISmsProvider
+public class FakeEmailSender : IEmailSender
 {
-    public List<(string Phone, string Code)> SentMessages { get; } = new();
+    public List<(string ToEmail, string Subject, string Body)> SentEmails { get; } = new();
 
-    public Task<bool> SendOtpAsync(string phoneNumber, string otpCode, CancellationToken ct = default)
+    public Task SendEmailAsync(string toEmail, string subject, string bodyHtml, CancellationToken ct = default)
     {
-        SentMessages.Add((phoneNumber, otpCode));
-        return Task.FromResult(true);
+        SentEmails.Add((toEmail, subject, bodyHtml));
+        return Task.CompletedTask;
     }
 }
 
@@ -67,7 +68,7 @@ public class CustomerAuthTests
         return db;
     }
 
-    private static (OtpAuthService OtpService, AuthService AuthService, FakeSmsProvider SmsProvider, TechCareDbContext Db) CreateServices(string dbName)
+    private static (AuthService AuthService, FakeEmailSender EmailSender, TechCareDbContext Db) CreateServices(string dbName)
     {
         var db = CreateDbContext(dbName);
         var config = new ConfigurationBuilder()
@@ -82,110 +83,256 @@ public class CustomerAuthTests
         var currentUserService = new FakeCurrentUserService();
         var auditService = new FakeAuditService();
         var cache = new MemoryCache(new MemoryCacheOptions());
-        var authService = new AuthService(db, config, currentUserService, auditService, cache);
-        var smsProvider = new FakeSmsProvider();
-        var otpService = new OtpAuthService(db, smsProvider, authService, auditService, NullLogger<OtpAuthService>.Instance);
+        var emailSender = new FakeEmailSender();
+        var authService = new AuthService(db, config, currentUserService, auditService, cache, emailSender);
 
-        return (otpService, authService, smsProvider, db);
+        return (authService, emailSender, db);
     }
 
-    // MANDATORY TEST 1A: OTP expired throws ValidationException
-    [Fact]
-    public async Task Otp_WhenExpired_ThrowsValidationException()
+    // MANDATORY TEST 6A-1: Invalid phone format is strictly rejected
+    [Theory]
+    [InlineData("123456")]
+    [InlineData("0123456789")]
+    [InlineData("09012345")]
+    [InlineData("abcd123456")]
+    public async Task Register_InvalidPhoneNumber_ThrowsValidationException(string badPhone)
     {
-        var (otpService, _, _, db) = CreateServices(Guid.NewGuid().ToString());
-        var phone = "0901234567";
+        var (auth, _, _) = CreateServices(Guid.NewGuid().ToString());
+        var req = new RegisterCustomerRequest("Nguyễn Văn A", "valid@test.vn", badPhone, "Password@123", "Password@123");
 
-        var codeHash = SHA256.HashData(Encoding.UTF8.GetBytes("123456"));
-        db.OtpCodes.Add(new OtpCode
-        {
-            PhoneNumber = phone,
-            CodeHash = codeHash,
-            ExpiresAtUtc = DateTime.UtcNow.AddMinutes(-2), // EXPIRED
-            FailedAttempts = 0,
-            CreatedAtUtc = DateTime.UtcNow.AddMinutes(-7)
-        });
-        await db.SaveChangesAsync();
-
-        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
-            otpService.VerifyOtpAsync(new VerifyOtpRequest(phone, "123456"), null, null));
-
-        Assert.Contains("hết hạn", ex.Message);
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => auth.RegisterCustomerAsync(req));
+        Assert.Contains("Số điện thoại không đúng định dạng", ex.Message);
     }
 
-    // MANDATORY TEST 1B: OTP failed attempts >= 5 locks the OTP
+    // MANDATORY TEST 6A-2: Duplicate email is rejected
     [Fact]
-    public async Task Otp_WhenWrongCodeEntered5Times_LocksOtp()
+    public async Task Register_DuplicateEmail_ThrowsValidationException()
     {
-        var (otpService, _, sms, db) = CreateServices(Guid.NewGuid().ToString());
-        var phone = "0909888777";
+        var (auth, _, _) = CreateServices(Guid.NewGuid().ToString());
+        var req1 = new RegisterCustomerRequest("Khách Một", "duplicate@techcare.vn", "0901234567", "Password@123", "Password@123");
+        await auth.RegisterCustomerAsync(req1);
 
-        await otpService.RequestOtpAsync(phone, "127.0.0.1");
-        Assert.Single(sms.SentMessages);
+        var req2 = new RegisterCustomerRequest("Khách Hai", "DUPLICATE@techcare.vn", "0907654321", "Password@456", "Password@456");
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => auth.RegisterCustomerAsync(req2));
+        Assert.Contains("Email này đã được sử dụng", ex.Message);
+    }
 
-        // Try wrong code 4 times
+    // MANDATORY TEST 6A-3: Customer login with unconfirmed email is rejected with EMAIL_NOT_VERIFIED
+    [Fact]
+    public async Task Login_CustomerUnconfirmedEmail_ThrowsEmailNotVerifiedException()
+    {
+        var (auth, _, _) = CreateServices(Guid.NewGuid().ToString());
+        var email = "unverified@test.vn";
+        var password = "SecurePassword@123";
+
+        await auth.RegisterCustomerAsync(new RegisterCustomerRequest("Chưa Xác Thực", email, "0903334455", password, password));
+
+        var ex = await Assert.ThrowsAsync<EmailNotVerifiedException>(() =>
+            auth.LoginAsync(new LoginRequest(email, password), "127.0.0.1", "Browser"));
+
+        Assert.Contains("chưa được xác thực email", ex.Message);
+        Assert.Equal(email, ex.Email);
+    }
+
+    // MANDATORY TEST 6A-4: Verification code locked after 5 failed attempts
+    [Fact]
+    public async Task VerifyEmail_WrongCode5Times_LocksCode()
+    {
+        var (auth, _, db) = CreateServices(Guid.NewGuid().ToString());
+        var email = "lockout@test.vn";
+        await auth.RegisterCustomerAsync(new RegisterCustomerRequest("Khách Khóa", email, "0905556677", "Password@123", "Password@123"));
+
+        // 4 wrong attempts
         for (int i = 0; i < 4; i++)
         {
             var exWrong = await Assert.ThrowsAsync<ValidationException>(() =>
-                otpService.VerifyOtpAsync(new VerifyOtpRequest(phone, "000000"), null, null));
+                auth.VerifyEmailAsync(new VerifyEmailRequest(email, "000000"), null, null));
             Assert.Contains("không chính xác", exWrong.Message);
         }
 
-        // 5th wrong attempt locks the OTP
+        // 5th wrong attempt locks the code
         var ex5 = await Assert.ThrowsAsync<ValidationException>(() =>
-            otpService.VerifyOtpAsync(new VerifyOtpRequest(phone, "000000"), null, null));
-        Assert.Contains("khóa do nhập sai quá 5 lần", ex5.Message);
+            auth.VerifyEmailAsync(new VerifyEmailRequest(email, "000000"), null, null));
+        Assert.Contains("bị khóa do nhập sai", ex5.Message);
 
-        // 6th attempt even with CORRECT code is still locked!
-        var correctCode = sms.SentMessages[0].Code;
+        // 6th attempt is still locked
         var ex6 = await Assert.ThrowsAsync<ValidationException>(() =>
-            otpService.VerifyOtpAsync(new VerifyOtpRequest(phone, correctCode), null, null));
-        Assert.Contains("khóa do nhập sai quá 5 lần", ex6.Message);
+            auth.VerifyEmailAsync(new VerifyEmailRequest(email, "123456"), null, null));
+        Assert.Contains("bị khóa do nhập sai", ex6.Message);
     }
 
-    // MANDATORY TEST 2: Verify 2 times with same phone creates only 1 User and 1 Customer link
+    // MANDATORY TEST 6A-5: Expired verification code is rejected
     [Fact]
-    public async Task Otp_VerifyTwiceWithSamePhone_CreatesExactlyOneUserAndOneCustomer()
+    public async Task VerifyEmail_WhenExpired_ThrowsValidationException()
     {
-        var (otpService, _, sms, db) = CreateServices(Guid.NewGuid().ToString());
-        var phone = "0933112233";
+        var (auth, _, db) = CreateServices(Guid.NewGuid().ToString());
+        var email = "expired@test.vn";
+        await auth.RegisterCustomerAsync(new RegisterCustomerRequest("Khách Hết Hạn", email, "0908889900", "Password@123", "Password@123"));
 
-        // First verification
-        await otpService.RequestOtpAsync(phone, "127.0.0.1");
-        var code1 = sms.SentMessages[0].Code;
-        var res1 = await otpService.VerifyOtpAsync(new VerifyOtpRequest(phone, code1), "127.0.0.1", "TestAgent");
-        Assert.NotNull(res1.AccessToken);
-
-        // Database checks after 1st verify
-        var userCount1 = await db.Users.CountAsync(u => u.PhoneNumber == phone);
-        var customerCount1 = await db.Customers.CountAsync(c => c.Phone == phone);
-        var customer1 = await db.Customers.FirstAsync(c => c.Phone == phone);
-        Assert.Equal(1, userCount1);
-        Assert.Equal(1, customerCount1);
-        Assert.NotNull(customer1.UserId);
-
-        // Fast-forward cooldown and request second OTP
-        var pastOtp = await db.OtpCodes.FirstAsync(o => o.PhoneNumber == phone);
-        pastOtp.CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5);
+        var token = await db.EmailTokens.FirstAsync(t => t.Email == email);
+        token.ExpiresAtUtc = DateTime.UtcNow.AddMinutes(-5);
         await db.SaveChangesAsync();
 
-        await otpService.RequestOtpAsync(phone, "127.0.0.1");
-        var code2 = sms.SentMessages[1].Code;
-        var res2 = await otpService.VerifyOtpAsync(new VerifyOtpRequest(phone, code2), "127.0.0.1", "TestAgent");
-        Assert.NotNull(res2.AccessToken);
-
-        // Database checks after 2nd verify: MUST REMAIN EXACTLY 1 USER AND 1 CUSTOMER
-        var userCount2 = await db.Users.CountAsync(u => u.PhoneNumber == phone);
-        var customerCount2 = await db.Customers.CountAsync(c => c.Phone == phone);
-        var customer2 = await db.Customers.FirstAsync(c => c.Phone == phone);
-
-        Assert.Equal(1, userCount2);
-        Assert.Equal(1, customerCount2);
-        Assert.Equal(customer1.UserId, customer2.UserId);
-        Assert.Equal(res1.User.UserId, res2.User.UserId);
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            auth.VerifyEmailAsync(new VerifyEmailRequest(email, "123456"), null, null));
+        Assert.Contains("hết hạn", ex.Message);
     }
 
-    // MANDATORY TEST 3: Customer A cannot access Customer B's ticket (Strict Ownership Isolation)
+    // MANDATORY TEST 6A-6: Reset password revokes existing active sessions
+    [Fact]
+    public async Task ResetPassword_RevokesExistingSessions_AndAllowsNewPasswordLogin()
+    {
+        var (auth, emailSender, db) = CreateServices(Guid.NewGuid().ToString());
+        var email = "session-revoke@test.vn";
+        var oldPassword = "OldPassword@123";
+        var newPassword = "NewPassword@456";
+
+        await auth.RegisterCustomerAsync(new RegisterCustomerRequest("Khách Đổi Pass", email, "0909112233", oldPassword, oldPassword));
+
+        // Manually confirm email to allow login
+        var user = await db.Users.FirstAsync(u => u.Email == email);
+        user.IsEmailConfirmed = true;
+        await db.SaveChangesAsync();
+
+        // Login to get an active session
+        var loginRes = await auth.LoginAsync(new LoginRequest(email, oldPassword), "1.2.3.4", "TestClient");
+        Assert.NotNull(loginRes.AccessToken);
+
+        var activeSessions = await db.Sessions.Where(s => s.UserId == user.UserId && s.RevokedAtUtc == null).CountAsync();
+        Assert.Equal(1, activeSessions);
+
+        // Request forgot password
+        await auth.ForgotPasswordAsync(email);
+        Assert.True(emailSender.SentEmails.Count >= 2); // 1 welcome + 1 reset
+
+        // Extract code from DB for testing
+        var resetToken = await db.EmailTokens.Where(t => t.UserId == user.UserId && t.Purpose == "RESET_PASSWORD").FirstAsync();
+        // Create known hash for test verification
+        var testCode = "654321";
+        resetToken.TokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(testCode));
+        await db.SaveChangesAsync();
+
+        // Perform password reset
+        await auth.ResetPasswordAsync(new ResetPasswordRequest(email, testCode, newPassword, newPassword));
+
+        // Old sessions must be revoked!
+        var revokedCount = await db.Sessions.Where(s => s.UserId == user.UserId && s.RevokedAtUtc != null).CountAsync();
+        Assert.Equal(1, revokedCount);
+
+        // Login with old password fails
+        await Assert.ThrowsAsync<UnauthorizedException>(() =>
+            auth.LoginAsync(new LoginRequest(email, oldPassword), "1.2.3.4", "TestClient"));
+
+        // Login with new password succeeds
+        var newLoginRes = await auth.LoginAsync(new LoginRequest(email, newPassword), "1.2.3.4", "TestClient");
+        Assert.NotNull(newLoginRes.AccessToken);
+    }
+
+    // MANDATORY TEST 6A-7: Register with existing customer phone links to old tickets
+    [Fact]
+    public async Task Register_ExistingCustomerPhone_LinksAccountToExistingCustomerAndTickets()
+    {
+        var (auth, _, db) = CreateServices(Guid.NewGuid().ToString());
+        var phone = "0977889900";
+        var email = "linked@techcare.vn";
+
+        // Seed old customer record with a repair ticket (created before customer had an account)
+        var oldCustomer = new Customer
+        {
+            CustomerId = 77,
+            CustomerCode = "CUST-OLD-77",
+            FullName = "Khách Hàng Cũ",
+            Phone = phone,
+            IsActive = true,
+            CreatedAtUtc = DateTime.UtcNow.AddMonths(-1)
+        };
+        db.Customers.Add(oldCustomer);
+
+        var oldTicket = new RepairTicket
+        {
+            RepairTicketId = 7701,
+            TicketCode = "TC-7701",
+            BranchId = 1,
+            CustomerId = 77,
+            DeviceId = 1,
+            Status = "COMPLETED",
+            Priority = "NORMAL",
+            CustomerIssue = "Vệ sinh tản nhiệt",
+            ReceivedAtUtc = DateTime.UtcNow.AddDays(-10),
+            CreatedAtUtc = DateTime.UtcNow.AddDays(-10),
+            RowVersion = new byte[8]
+        };
+        db.RepairTickets.Add(oldTicket);
+        await db.SaveChangesAsync();
+
+        // Customer registers new account using their phone number
+        var reg = await auth.RegisterCustomerAsync(new RegisterCustomerRequest("Khách Hàng Cũ", email, phone, "SecurePass@123", "SecurePass@123"));
+        Assert.True(reg.UserId > 0);
+
+        // Verify customer record is now linked to the newly registered User
+        var updatedCustomer = await db.Customers.FirstAsync(c => c.CustomerId == 77);
+        Assert.Equal(reg.UserId, updatedCustomer.UserId);
+
+        // In customer portal, querying tickets by current user's customerId finds the old ticket!
+        var customerTickets = await db.RepairTickets.Where(t => t.CustomerId == updatedCustomer.CustomerId).ToListAsync();
+        Assert.Single(customerTickets);
+        Assert.Equal("TC-7701", customerTickets[0].TicketCode);
+    }
+
+    // MANDATORY TEST 6C-1: DeliveryMethod SHIP_IN / PICKUP requires valid address (min 10 chars)
+    [Fact]
+    public void BookAppointmentValidator_ShipInOrPickup_RequiresAddress()
+    {
+        var validator = new BookAppointmentValidator();
+
+        // 1. SHIP_IN with empty address -> Invalid
+        var res1 = validator.Validate(new BookAppointmentRequest
+        {
+            CustomerName = "Nguyễn Văn B",
+            CustomerPhone = "0901234567",
+            IssueDescription = "Thay bàn phím laptop Dell",
+            DeliveryMethod = "SHIP_IN",
+            PickupAddress = ""
+        });
+        Assert.False(res1.IsValid);
+        Assert.Contains(res1.Errors, e => e.PropertyName == "PickupAddress");
+
+        // 2. PICKUP with short address (< 10 chars) -> Invalid
+        var res2 = validator.Validate(new BookAppointmentRequest
+        {
+            CustomerName = "Nguyễn Văn B",
+            CustomerPhone = "0901234567",
+            IssueDescription = "Thay bàn phím laptop Dell",
+            DeliveryMethod = "PICKUP",
+            PickupAddress = "Hà Nội"
+        });
+        Assert.False(res2.IsValid);
+        Assert.Contains(res2.Errors, e => e.PropertyName == "PickupAddress");
+
+        // 3. AT_STORE with empty address -> Valid (store intake needs no address)
+        var res3 = validator.Validate(new BookAppointmentRequest
+        {
+            CustomerName = "Nguyễn Văn B",
+            CustomerPhone = "0901234567",
+            IssueDescription = "Thay bàn phím laptop Dell",
+            DeliveryMethod = "AT_STORE",
+            PickupAddress = null
+        });
+        Assert.True(res3.IsValid);
+
+        // 4. PICKUP with full valid address -> Valid
+        var res4 = validator.Validate(new BookAppointmentRequest
+        {
+            CustomerName = "Nguyễn Văn B",
+            CustomerPhone = "0901234567",
+            IssueDescription = "Thay bàn phím laptop Dell",
+            DeliveryMethod = "PICKUP",
+            PickupAddress = "123 Đường Cầu Giấy, Hà Nội"
+        });
+        Assert.True(res4.IsValid);
+    }
+
+    // MANDATORY TEST 6C-2: Customer A cannot access Customer B's ticket (Strict Ownership Isolation)
     [Fact]
     public async Task CustomerPortal_CustomerA_AccessingCustomerB_Ticket_ReturnsForbid()
     {
@@ -196,21 +343,22 @@ public class CustomerAuthTests
         var userA = new User
         {
             UserId = 100,
-            UserName = "0901111111",
-            NormalizedUserName = "0901111111",
-            PhoneNumber = "0901111111",
+            UserName = "cust_a@techcare.vn",
+            NormalizedUserName = "CUST_A@TECHCARE.VN",
+            Email = "cust_a@techcare.vn",
+            NormalizedEmail = "CUST_A@TECHCARE.VN",
             IsActive = true,
             CreatedAtUtc = DateTime.UtcNow,
             RowVersion = new byte[8]
         };
         db.Users.Add(userA);
-
         var custA = new Customer
         {
             CustomerId = 1,
-            CustomerCode = "KH001",
+            CustomerCode = "KH-001",
             FullName = "Khách Hàng A",
             Phone = "0901111111",
+            Email = "cust_a@techcare.vn",
             UserId = 100,
             IsActive = true,
             CreatedAtUtc = DateTime.UtcNow,
@@ -222,21 +370,22 @@ public class CustomerAuthTests
         var userB = new User
         {
             UserId = 200,
-            UserName = "0902222222",
-            NormalizedUserName = "0902222222",
-            PhoneNumber = "0902222222",
+            UserName = "cust_b@techcare.vn",
+            NormalizedUserName = "CUST_B@TECHCARE.VN",
+            Email = "cust_b@techcare.vn",
+            NormalizedEmail = "CUST_B@TECHCARE.VN",
             IsActive = true,
             CreatedAtUtc = DateTime.UtcNow,
             RowVersion = new byte[8]
         };
         db.Users.Add(userB);
-
         var custB = new Customer
         {
             CustomerId = 2,
-            CustomerCode = "KH002",
+            CustomerCode = "KH-002",
             FullName = "Khách Hàng B",
             Phone = "0902222222",
+            Email = "cust_b@techcare.vn",
             UserId = 200,
             IsActive = true,
             CreatedAtUtc = DateTime.UtcNow,
@@ -244,41 +393,17 @@ public class CustomerAuthTests
         };
         db.Customers.Add(custB);
 
-        // Seed Ticket belonging to Customer B
-        var branch = new Branch
-        {
-            BranchId = 1,
-            BranchCode = "CN1",
-            BranchName = "Chi nhánh 1",
-            AddressLine = "123 Đường A",
-            Phone = "0900000000",
-            IsActive = true,
-            CreatedAtUtc = DateTime.UtcNow,
-            RowVersion = new byte[8]
-        };
-        db.Branches.Add(branch);
-
-        var deviceB = new Device
-        {
-            DeviceId = 10,
-            CustomerId = custB.CustomerId,
-            ModelName = "MacBook Pro M1",
-            SerialNumber = "MBP-2021-B",
-            CreatedAtUtc = DateTime.UtcNow,
-            RowVersion = new byte[8]
-        };
-        db.Devices.Add(deviceB);
-
+        // Seed Ticket for Customer B
         var ticketB = new RepairTicket
         {
             RepairTicketId = 999,
             TicketCode = "TC-B-999",
-            BranchId = branch.BranchId,
-            CustomerId = custB.CustomerId, // Belongs to Customer B!
-            DeviceId = deviceB.DeviceId,
-            CustomerIssue = "Vỡ màn hình",
-            Status = "IN_PROGRESS",
-            Priority = "HIGH",
+            BranchId = 1,
+            CustomerId = 2,
+            DeviceId = 1,
+            Status = "REPAIRING",
+            Priority = "NORMAL",
+            CustomerIssue = "Hỏng màn hình",
             ReceivedAtUtc = DateTime.UtcNow,
             CreatedAtUtc = DateTime.UtcNow,
             RowVersion = new byte[8]
@@ -286,51 +411,15 @@ public class CustomerAuthTests
         db.RepairTickets.Add(ticketB);
         await db.SaveChangesAsync();
 
-        // Simulate request from Customer A
-        var currentUserServiceA = new TestCurrentUserService
-        {
-            UserId = userA.UserId,
-            UserName = userA.UserName
-        };
+        // Customer A queries ticket 999
+        var currentCustomer = await db.Customers.FirstOrDefaultAsync(c => c.UserId == userA.UserId);
+        Assert.NotNull(currentCustomer);
 
-        var httpContext = new DefaultHttpContext();
-        httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(new[]
-        {
-            new Claim(ClaimTypes.NameIdentifier, userA.UserId.ToString()),
-            new Claim(ClaimTypes.Role, "CUSTOMER")
-        }, "TestAuth"));
-
-        // When Customer A tries to access Customer B's ticket (999)
-        // Check ticket ownership manually or via handler logic:
         var ticket = await db.RepairTickets.AsNoTracking().FirstOrDefaultAsync(t => t.RepairTicketId == 999);
-        var currentCust = await db.Customers.FirstOrDefaultAsync(c => c.UserId == currentUserServiceA.UserId);
-
         Assert.NotNull(ticket);
-        Assert.NotNull(currentCust);
-        Assert.NotEqual(ticket.CustomerId, currentCust.CustomerId);
 
-        // Security assertion: Ownership check MUST trigger Forbid
-        bool isOwner = ticket.CustomerId == currentCust.CustomerId;
-        Assert.False(isOwner, "Customer A MUST NOT be recognized as owner of Customer B's ticket");
-    }
-
-    // Rate Limit / Cooldown check
-    [Fact]
-    public async Task Otp_Cooldown_DoesNotSendSecondCodeWithin60Seconds()
-    {
-        var (otpService, _, sms, db) = CreateServices(Guid.NewGuid().ToString());
-        var phone = "0944556677";
-
-        var res1 = await otpService.RequestOtpAsync(phone, "127.0.0.1");
-        Assert.True(res1.Success);
-        Assert.Single(sms.SentMessages);
-
-        // Request again immediately within 60s
-        var res2 = await otpService.RequestOtpAsync(phone, "127.0.0.1");
-        Assert.True(res2.Success); // Returns generic message to thwart enumeration
-        Assert.Single(sms.SentMessages); // BUT SMS WAS NOT SENT AGAIN!
-
-        var count = await db.OtpCodes.CountAsync(o => o.PhoneNumber == phone);
-        Assert.Equal(1, count); // Only 1 OTP record created
+        // Server-side check
+        bool isOwner = ticket.CustomerId == currentCustomer.CustomerId;
+        Assert.False(isOwner, "Customer A must not have ownership of Customer B's ticket");
     }
 }

@@ -28,82 +28,126 @@ export default function App() {
     }
   })
   const [currentRolePath, setCurrentRolePath] = useState<string | null>(null)
-  const [loginUsername, setLoginUsername] = useState('admin')
-  const [loginPassword, setLoginPassword] = useState('Admin@123')
-  const [loginLoading, setLoginLoading] = useState(false)
-  const [loginError, setLoginError] = useState<string | null>(null)
 
-  // Customer OTP login state
-  const [loginTab, setLoginTab] = useState<'customer' | 'staff'>('customer')
-  const [customerPhone, setCustomerPhone] = useState('')
-  const [otpStep, setOtpStep] = useState<'phone' | 'code'>('phone')
-  const [otpCode, setOtpCode] = useState('')
-  const [otpCountdown, setOtpCountdown] = useState(0)
-  const [otpLoading, setOtpLoading] = useState(false)
-  const [otpMessage, setOtpMessage] = useState<string | null>(null)
-  const [otpError, setOtpError] = useState<string | null>(null)
+  // Unified Auth State (Đợt 6: Email Registration & Verification)
+  type AuthModalTab = 'LOGIN' | 'REGISTER' | 'VERIFY_EMAIL' | 'FORGOT_PASSWORD' | 'RESET_PASSWORD'
+  const [authTab, setAuthTab] = useState<AuthModalTab>('LOGIN')
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [authMessage, setAuthMessage] = useState<string | null>(null)
+  const [authLoading, setAuthLoading] = useState(false)
+
+  // Login inputs
+  const [loginIdentifier, setLoginIdentifier] = useState('admin')
+  const [loginPassword, setLoginPassword] = useState('Admin@123')
+
+  // Register inputs
+  const [regFullName, setRegFullName] = useState('')
+  const [regEmail, setRegEmail] = useState('')
+  const [regPhone, setRegPhone] = useState('')
+  const [regPassword, setRegPassword] = useState('')
+  const [regConfirmPassword, setRegConfirmPassword] = useState('')
+
+  // Verify email & forgot password inputs
+  const [verifyEmail, setVerifyEmail] = useState('')
+  const [verifyCode, setVerifyCode] = useState('')
+  const [resendCountdown, setResendCountdown] = useState(0)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetCode, setResetCode] = useState('')
+  const [resetNewPassword, setResetNewPassword] = useState('')
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('')
 
   useEffect(() => {
-    if (otpCountdown <= 0) return
+    if (resendCountdown <= 0) return
     const timer = setInterval(() => {
-      setOtpCountdown((prev) => prev - 1)
+      setResendCountdown((prev) => prev - 1)
     }, 1000)
     return () => clearInterval(timer)
-  }, [otpCountdown])
+  }, [resendCountdown])
 
-  const handleRequestOtp = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault()
-    if (!customerPhone.trim()) {
-      setOtpError('Vui lòng nhập số điện thoại.')
-      return
-    }
-    setOtpLoading(true)
-    setOtpError(null)
-    setOtpMessage(null)
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/auth/otp/request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneNumber: customerPhone.trim() }),
-      })
-      if (res.ok) {
-        setOtpStep('code')
-        setOtpCountdown(60)
-        setOtpMessage('Mã xác thực 6 số đã được gửi qua SMS đến số điện thoại của bạn.')
-      } else {
-        const err = await res.json().catch(() => null)
-        setOtpError(err?.message || 'Không thể gửi mã xác thực. Vui lòng thử lại.')
-      }
-    } catch {
-      setOtpError('Không thể kết nối đến máy chủ.')
-    } finally {
-      setOtpLoading(false)
-    }
-  }
-
-  const handleVerifyOtp = async (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!otpCode.trim() || otpCode.trim().length !== 6) {
-      setOtpError('Vui lòng nhập đầy đủ mã xác thực 6 số.')
+    setAuthError(null)
+    setAuthMessage(null)
+
+    const phoneRegex = /^0(3|5|7|8|9)\d{8}$/
+    if (!phoneRegex.test(regPhone.trim())) {
+      setAuthError('Số điện thoại không hợp lệ. Vui lòng nhập số di động Việt Nam 10 chữ số (VD: 0912345678).')
       return
     }
-    setOtpLoading(true)
-    setOtpError(null)
+    if (!regEmail.includes('@') || !regEmail.includes('.')) {
+      setAuthError('Email không hợp lệ.')
+      return
+    }
+    if (regPassword.length < 8) {
+      setAuthError('Mật khẩu phải có tối thiểu 8 ký tự.')
+      return
+    }
+    if (!/[A-Za-z]/.test(regPassword) || !/\d/.test(regPassword)) {
+      setAuthError('Mật khẩu phải chứa cả chữ cái và số.')
+      return
+    }
+    if (regPassword !== regConfirmPassword) {
+      setAuthError('Mật khẩu xác nhận không khớp.')
+      return
+    }
+
+    setAuthLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/auth/otp/verify`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phoneNumber: customerPhone.trim(),
-          code: otpCode.trim(),
+          fullName: regFullName.trim(),
+          email: regEmail.trim(),
+          phoneNumber: regPhone.trim(),
+          password: regPassword,
+          confirmPassword: regConfirmPassword,
         }),
       })
+
+      const data = await res.json().catch(() => null)
       if (res.ok) {
-        const data = await res.json()
+        setVerifyEmail(regEmail.trim())
+        setAuthTab('VERIFY_EMAIL')
+        setAuthMessage(data?.message || 'Đăng ký thành công! Vui lòng kiểm tra email để lấy mã xác thực 6 số (môi trường dev: xem trong log server).')
+        setResendCountdown(60)
+      } else {
+        setAuthError(data?.detail || data?.message || 'Đăng ký tài khoản không thành công. Vui lòng kiểm tra lại thông tin.')
+      }
+    } catch {
+      setAuthError('Không thể kết nối đến máy chủ. Vui lòng thử lại sau.')
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const handleVerifyEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!verifyCode.trim() || verifyCode.trim().length !== 6) {
+      setAuthError('Vui lòng nhập đầy đủ mã xác thực 6 chữ số.')
+      return
+    }
+    setAuthLoading(true)
+    setAuthError(null)
+    setAuthMessage(null)
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: verifyEmail.trim(),
+          code: verifyCode.trim(),
+        }),
+      })
+
+      const data = await res.json().catch(() => null)
+      if (res.ok) {
         const authUser: AuthUser = {
           userId: data.user?.userId || data.userId || 0,
-          userName: data.user?.userName || customerPhone.trim(),
-          email: data.user?.email,
+          userName: data.user?.userName || verifyEmail.trim(),
+          email: data.user?.email || verifyEmail.trim(),
           roles: data.user?.roles || ['CUSTOMER'],
           permissions: data.user?.permissions || [],
           token: data.accessToken,
@@ -113,17 +157,109 @@ export default function App() {
         setCurrentUser(authUser)
         setIsLoginOpen(false)
         setCurrentRolePath('/tai-khoan')
-        setOtpStep('phone')
-        setOtpCode('')
-        setOtpMessage(null)
+        setAuthTab('LOGIN')
+        setVerifyCode('')
       } else {
-        const err = await res.json().catch(() => null)
-        setOtpError(err?.message || 'Mã xác thực không hợp lệ hoặc đã hết hạn.')
+        setAuthError(data?.detail || data?.message || 'Mã xác thực không đúng hoặc đã hết hạn.')
       }
     } catch {
-      setOtpError('Không thể xác thực OTP. Vui lòng thử lại.')
+      setAuthError('Lỗi kết nối máy chủ khi xác thực.')
     } finally {
-      setOtpLoading(false)
+      setAuthLoading(false)
+    }
+  }
+
+  const handleResendEmailCode = async () => {
+    if (resendCountdown > 0) return
+    setAuthLoading(true)
+    setAuthError(null)
+    setAuthMessage(null)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/resend-email-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: verifyEmail.trim() }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok) {
+        setAuthMessage(data?.message || 'Mã xác thực mới đã được gửi tới email của bạn.')
+        setResendCountdown(60)
+      } else {
+        setAuthError(data?.detail || data?.message || 'Không thể gửi lại mã. Vui lòng thử lại sau.')
+      }
+    } catch {
+      setAuthError('Không thể kết nối đến máy chủ.')
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!forgotEmail.trim()) {
+      setAuthError('Vui lòng nhập địa chỉ email.')
+      return
+    }
+    setAuthLoading(true)
+    setAuthError(null)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      })
+      const data = await res.json().catch(() => null)
+      setResetEmail(forgotEmail.trim())
+      setAuthTab('RESET_PASSWORD')
+      setAuthMessage(data?.message || 'Nếu email tồn tại trong hệ thống, mã đặt lại mật khẩu đã được gửi đến hộp thư.')
+      setResendCountdown(60)
+    } catch {
+      setAuthError('Không thể kết nối đến máy chủ.')
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!resetCode.trim() || resetCode.trim().length !== 6) {
+      setAuthError('Vui lòng nhập đúng mã xác thực 6 số.')
+      return
+    }
+    if (resetNewPassword.length < 8 || !/[A-Za-z]/.test(resetNewPassword) || !/\d/.test(resetNewPassword)) {
+      setAuthError('Mật khẩu mới phải có ít nhất 8 ký tự, gồm cả chữ cái và số.')
+      return
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      setAuthError('Xác nhận mật khẩu mới không khớp.')
+      return
+    }
+    setAuthLoading(true)
+    setAuthError(null)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: resetEmail.trim(),
+          code: resetCode.trim(),
+          newPassword: resetNewPassword,
+          confirmNewPassword: resetConfirmPassword,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok) {
+        setAuthTab('LOGIN')
+        setLoginIdentifier(resetEmail.trim())
+        setLoginPassword('')
+        setAuthMessage(data?.message || 'Đặt lại mật khẩu thành công! Tất cả phiên đăng nhập cũ đã được thu hồi an toàn. Bạn có thể đăng nhập ngay.')
+      } else {
+        setAuthError(data?.detail || data?.message || 'Không thể đặt lại mật khẩu. Mã xác nhận có thể đã hết hạn hoặc không đúng.')
+      }
+    } catch {
+      setAuthError('Lỗi kết nối máy chủ khi đặt lại mật khẩu.')
+    } finally {
+      setAuthLoading(false)
     }
   }
 
@@ -148,15 +284,16 @@ export default function App() {
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoginError(null)
-    setLoginLoading(true)
+    setAuthError(null)
+    setAuthMessage(null)
+    setAuthLoading(true)
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userNameOrEmail: loginUsername.trim(),
+          userNameOrEmail: loginIdentifier.trim(),
           password: loginPassword,
         }),
       })
@@ -164,10 +301,11 @@ export default function App() {
       if (res.ok) {
         const data = await res.json()
         const authUser: AuthUser = {
-          userId: data.userId || 1,
-          userName: data.userName || loginUsername.trim(),
-          roles: data.roles || ['ADMIN'],
-          permissions: data.permissions || [],
+          userId: data.user?.userId || data.userId || 1,
+          userName: data.user?.userName || data.userName || loginIdentifier.trim(),
+          email: data.user?.email,
+          roles: data.user?.roles || data.roles || ['ADMIN'],
+          permissions: data.user?.permissions || data.permissions || [],
           token: data.accessToken,
         }
         localStorage.setItem('tc_token', data.accessToken)
@@ -183,25 +321,34 @@ export default function App() {
         else setCurrentRolePath('/tai-khoan')
       } else {
         const err = await res.json().catch(() => null)
-        setLoginError(err?.message || 'Tên đăng nhập hoặc mật khẩu không chính xác.')
+        const isNotVerified = err?.errorCode === 'EMAIL_NOT_VERIFIED' || err?.extensions?.errorCode === 'EMAIL_NOT_VERIFIED'
+        if (isNotVerified) {
+          const targetEmail = err?.extensions?.email || err?.email || loginIdentifier.trim()
+          setVerifyEmail(targetEmail)
+          setAuthTab('VERIFY_EMAIL')
+          setAuthMessage(err?.detail || 'Tài khoản của bạn chưa xác thực email. Mã xác thực 6 số đã được gửi đến email.')
+          setResendCountdown(60)
+        } else {
+          setAuthError(err?.detail || err?.message || 'Tên đăng nhập / Email hoặc mật khẩu không chính xác.')
+        }
       }
     } catch {
       // Local fallback mock session
-      const roles = loginUsername.toLowerCase().includes('tech')
+      const roles = loginIdentifier.toLowerCase().includes('tech')
         ? ['TECHNICIAN']
-        : loginUsername.toLowerCase().includes('kho')
+        : loginIdentifier.toLowerCase().includes('kho')
         ? ['INVENTORY']
-        : loginUsername.toLowerCase().includes('tan')
+        : loginIdentifier.toLowerCase().includes('tan')
         ? ['RECEPTIONIST']
-        : loginUsername.toLowerCase().includes('thu')
+        : loginIdentifier.toLowerCase().includes('thu')
         ? ['CASHIER']
-        : loginUsername.toLowerCase().includes('tro')
+        : loginIdentifier.toLowerCase().includes('tro')
         ? ['SUPPORT']
         : ['ADMIN']
 
       const mockUser: AuthUser = {
         userId: 1,
-        userName: loginUsername.trim() || 'Admin',
+        userName: loginIdentifier.trim() || 'Admin',
         roles,
         permissions: ['ALL'],
         token: 'demo-token',
@@ -218,7 +365,7 @@ export default function App() {
       else if (mockUser.roles.includes('SUPPORT')) setCurrentRolePath('/ho-tro')
       else setCurrentRolePath('/tai-khoan')
     } finally {
-      setLoginLoading(false)
+      setAuthLoading(false)
     }
   }
 
@@ -460,7 +607,7 @@ export default function App() {
 
             <div className="hero-copy">
               <div className="status-badge">
-                <span className="status-dot-pcb"></span>
+                <span className="status-dot-pcb" style={{ background: '#10b981', boxShadow: '0 0 0 0 rgba(16, 185, 129, 0.7)' }}></span>
                 <span>Đang mở cửa · Nhận máy đến 21:00</span>
               </div>
 
@@ -990,158 +1137,111 @@ export default function App() {
         </div>
       )}
 
-      {/* 9. LOGIN MODAL */}
+      {/* 9. LOGIN / REGISTER / AUTH MODAL */}
       {isLoginOpen && (
         <div className="modal-backdrop" onClick={() => setIsLoginOpen(false)}>
-          <div className="modal-card" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <div className="eyebrow" style={{ textAlign: 'left', marginBottom: '4px' }}>HỆ THỐNG TECHCARE</div>
-                <h3>Đăng nhập</h3>
+                <h3>
+                  {authTab === 'LOGIN' && 'Đăng nhập'}
+                  {authTab === 'REGISTER' && 'Đăng ký tài khoản'}
+                  {authTab === 'VERIFY_EMAIL' && 'Xác thực Email'}
+                  {authTab === 'FORGOT_PASSWORD' && 'Quên mật khẩu'}
+                  {authTab === 'RESET_PASSWORD' && 'Đặt lại mật khẩu'}
+                </h3>
               </div>
-              <button type="button" className="close-btn" onClick={() => setIsLoginOpen(false)}>
+              <button
+                type="button"
+                className="close-btn"
+                onClick={() => {
+                  setIsLoginOpen(false)
+                  setAuthError(null)
+                  setAuthMessage(null)
+                }}
+              >
                 ✕
               </button>
             </div>
 
-            {/* Tab Switcher: Khách hàng (OTP) vs Nhân viên */}
-            <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '16px' }}>
-              <button
-                type="button"
-                onClick={() => { setLoginTab('customer'); setOtpError(null); setLoginError(null); }}
-                style={{
-                  flex: 1,
-                  padding: '10px 0',
-                  border: 'none',
-                  background: 'none',
-                  fontSize: '13.5px',
-                  fontWeight: loginTab === 'customer' ? 600 : 400,
-                  color: loginTab === 'customer' ? 'var(--ink)' : 'var(--sub)',
-                  borderBottom: loginTab === 'customer' ? '2px solid var(--ink)' : '2px solid transparent',
-                  cursor: 'pointer',
-                }}
-              >
-                Khách hàng (OTP)
-              </button>
-              <button
-                type="button"
-                onClick={() => { setLoginTab('staff'); setOtpError(null); setLoginError(null); }}
-                style={{
-                  flex: 1,
-                  padding: '10px 0',
-                  border: 'none',
-                  background: 'none',
-                  fontSize: '13.5px',
-                  fontWeight: loginTab === 'staff' ? 600 : 400,
-                  color: loginTab === 'staff' ? 'var(--ink)' : 'var(--sub)',
-                  borderBottom: loginTab === 'staff' ? '2px solid var(--ink)' : '2px solid transparent',
-                  cursor: 'pointer',
-                }}
-              >
-                Nhân viên nội bộ
-              </button>
-            </div>
-
-            {loginTab === 'customer' ? (
-              <div>
-                {otpError && (
-                  <div style={{ color: '#dc2626', background: '#fef2f2', padding: '8px 12px', borderRadius: '6px', fontSize: '12.5px', marginBottom: '12px' }}>
-                    {otpError}
-                  </div>
-                )}
-                {otpMessage && (
-                  <div style={{ color: '#065f46', background: '#ecfdf5', padding: '8px 12px', borderRadius: '6px', fontSize: '12.5px', marginBottom: '12px' }}>
-                    {otpMessage}
-                  </div>
-                )}
-
-                {otpStep === 'phone' ? (
-                  <form onSubmit={handleRequestOtp} className="booking-form">
-                    <div>
-                      <label>Số điện thoại đã đặt lịch / sửa máy</label>
-                      <input
-                        type="tel"
-                        required
-                        placeholder="09xx xxx xxx"
-                        value={customerPhone}
-                        onChange={(e) => setCustomerPhone(e.target.value)}
-                        autoFocus
-                      />
-                    </div>
-                    <div style={{ marginTop: '12px' }}>
-                      <button type="submit" className="button" style={{ width: '100%' }} disabled={otpLoading}>
-                        {otpLoading ? 'Đang gửi mã...' : 'Gửi mã xác thực OTP'} <span>→</span>
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  <form onSubmit={handleVerifyOtp} className="booking-form">
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <label style={{ margin: 0 }}>Mã xác thực 6 chữ số</label>
-                        <button
-                          type="button"
-                          onClick={() => { setOtpStep('phone'); setOtpCode(''); setOtpError(null); setOtpMessage(null); }}
-                          style={{ background: 'none', border: 'none', fontSize: '12px', color: 'var(--sub)', cursor: 'pointer', textDecoration: 'underline' }}
-                        >
-                          Đổi số điện thoại
-                        </button>
-                      </div>
-                      <input
-                        type="text"
-                        required
-                        maxLength={6}
-                        placeholder="123456"
-                        value={otpCode}
-                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                        style={{ textAlign: 'center', fontSize: '18px', letterSpacing: '6px', fontWeight: 700 }}
-                        autoFocus
-                      />
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12.5px', marginTop: '6px' }}>
-                      <span style={{ color: 'var(--sub)' }}>Chưa nhận được mã?</span>
-                      {otpCountdown > 0 ? (
-                        <span style={{ color: 'var(--sub)' }}>Gửi lại sau <strong>{otpCountdown}s</strong></span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleRequestOtp()}
-                          disabled={otpLoading}
-                          style={{ background: 'none', border: 'none', color: 'var(--ink)', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
-                        >
-                          Gửi lại mã OTP
-                        </button>
-                      )}
-                    </div>
-
-                    <div style={{ marginTop: '14px' }}>
-                      <button type="submit" className="button" style={{ width: '100%' }} disabled={otpLoading || otpCode.length !== 6}>
-                        {otpLoading ? 'Đang xác thực...' : 'Xác nhận & Đăng nhập'} <span>→</span>
-                      </button>
-                    </div>
-                  </form>
-                )}
+            {/* Tab Switcher: Only on Login / Register */}
+            {(authTab === 'LOGIN' || authTab === 'REGISTER') && (
+              <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '16px' }}>
+                <button
+                  type="button"
+                  onClick={() => { setAuthTab('LOGIN'); setAuthError(null); setAuthMessage(null); }}
+                  style={{
+                    flex: 1,
+                    padding: '10px 0',
+                    border: 'none',
+                    background: 'none',
+                    fontSize: '13.5px',
+                    fontWeight: authTab === 'LOGIN' ? 600 : 400,
+                    color: authTab === 'LOGIN' ? 'var(--ink)' : 'var(--sub)',
+                    borderBottom: authTab === 'LOGIN' ? '2px solid var(--ink)' : '2px solid transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Đăng nhập
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAuthTab('REGISTER'); setAuthError(null); setAuthMessage(null); }}
+                  style={{
+                    flex: 1,
+                    padding: '10px 0',
+                    border: 'none',
+                    background: 'none',
+                    fontSize: '13.5px',
+                    fontWeight: authTab === 'REGISTER' ? 600 : 400,
+                    color: authTab === 'REGISTER' ? 'var(--ink)' : 'var(--sub)',
+                    borderBottom: authTab === 'REGISTER' ? '2px solid var(--ink)' : '2px solid transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Đăng ký tài khoản
+                </button>
               </div>
-            ) : (
+            )}
+
+            {/* Error & Success Alerts */}
+            {authError && (
+              <div style={{ color: '#dc2626', background: '#fef2f2', padding: '10px 14px', borderRadius: '8px', fontSize: '12.5px', marginBottom: '14px', border: '1px solid #fecaca' }}>
+                {authError}
+              </div>
+            )}
+            {authMessage && (
+              <div style={{ color: '#065f46', background: '#ecfdf5', padding: '10px 14px', borderRadius: '8px', fontSize: '12.5px', marginBottom: '14px', border: '1px solid #a7f3d0' }}>
+                {authMessage}
+              </div>
+            )}
+
+            {/* Form 1: LOGIN */}
+            {authTab === 'LOGIN' && (
               <form onSubmit={handleLoginSubmit} className="booking-form">
-                {loginError && (
-                  <div style={{ color: '#dc2626', background: '#fef2f2', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '10px' }}>
-                    {loginError}
-                  </div>
-                )}
                 <div>
                   <label>Tên đăng nhập hoặc Email</label>
                   <input
                     type="text"
                     required
-                    placeholder="admin / technician / le-tan / kho"
-                    value={loginUsername}
-                    onChange={(e) => setLoginUsername(e.target.value)}
+                    placeholder="Email khách hàng hoặc user nhân viên (admin / le-tan...)"
+                    value={loginIdentifier}
+                    onChange={(e) => setLoginIdentifier(e.target.value)}
+                    autoFocus
                   />
                 </div>
                 <div>
-                  <label>Mật khẩu</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ margin: 0 }}>Mật khẩu</label>
+                    <button
+                      type="button"
+                      onClick={() => { setAuthTab('FORGOT_PASSWORD'); setAuthError(null); setAuthMessage(null); }}
+                      style={{ background: 'none', border: 'none', fontSize: '12px', color: 'var(--sub)', cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                      Quên mật khẩu?
+                    </button>
+                  </div>
                   <input
                     type="password"
                     required
@@ -1151,9 +1251,219 @@ export default function App() {
                   />
                 </div>
 
-                <div style={{ marginTop: '12px' }}>
-                  <button type="submit" className="button" style={{ width: '100%' }} disabled={loginLoading}>
-                    {loginLoading ? 'Đang xác thực...' : 'Đăng nhập vào hệ thống'} <span>→</span>
+                <div style={{ marginTop: '14px' }}>
+                  <button type="submit" className="button" style={{ width: '100%' }} disabled={authLoading}>
+                    {authLoading ? 'Đang xác thực...' : 'Đăng nhập vào hệ thống'} <span>→</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Form 2: REGISTER */}
+            {authTab === 'REGISTER' && (
+              <form onSubmit={handleRegisterSubmit} className="booking-form">
+                <div>
+                  <label>Họ và tên *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Nguyễn Văn A"
+                    value={regFullName}
+                    onChange={(e) => setRegFullName(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label>Email liên hệ & đăng nhập *</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="example@domain.com"
+                    value={regEmail}
+                    onChange={(e) => setRegEmail(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label>Số điện thoại liên hệ *</label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="0912345678 (10 số, không cần OTP)"
+                    value={regPhone}
+                    onChange={(e) => setRegPhone(e.target.value)}
+                  />
+                  <span style={{ fontSize: '11px', color: 'var(--sub)', marginTop: '2px', display: 'block' }}>
+                    Số điện thoại dùng để nhận diện hồ sơ máy sửa và liên hệ giao nhận, không cần OTP.
+                  </span>
+                </div>
+                <div>
+                  <label>Mật khẩu (tối thiểu 8 ký tự, có chữ và số) *</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={regPassword}
+                    onChange={(e) => setRegPassword(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label>Nhập lại mật khẩu *</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={regConfirmPassword}
+                    onChange={(e) => setRegConfirmPassword(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ marginTop: '14px' }}>
+                  <button type="submit" className="button" style={{ width: '100%' }} disabled={authLoading}>
+                    {authLoading ? 'Đang tạo tài khoản...' : 'Đăng ký tài khoản'} <span>→</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Form 3: VERIFY EMAIL */}
+            {authTab === 'VERIFY_EMAIL' && (
+              <form onSubmit={handleVerifyEmailSubmit} className="booking-form">
+                <p style={{ fontSize: '13px', color: '#555', lineHeight: 1.5, marginBottom: '12px' }}>
+                  Mã xác thực 6 số đã được gửi tới <strong>{verifyEmail}</strong>. Vui lòng nhập mã để kích hoạt tài khoản.
+                </p>
+                <div>
+                  <label style={{ textAlign: 'center', display: 'block' }}>Mã xác thực 6 chữ số</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    placeholder="123456"
+                    value={verifyCode}
+                    onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ''))}
+                    style={{ textAlign: 'center', fontSize: '20px', letterSpacing: '6px', fontWeight: 700 }}
+                    autoFocus
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12.5px', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthTab('LOGIN'); setAuthError(null); setAuthMessage(null); }}
+                    style={{ background: 'none', border: 'none', color: 'var(--sub)', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    ← Quay lại đăng nhập
+                  </button>
+                  {resendCountdown > 0 ? (
+                    <span style={{ color: 'var(--sub)' }}>Gửi lại sau <strong>{resendCountdown}s</strong></span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResendEmailCode}
+                      disabled={authLoading}
+                      style={{ background: 'none', border: 'none', color: 'var(--ink)', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                      Gửi lại mã
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ marginTop: '16px' }}>
+                  <button type="submit" className="button" style={{ width: '100%' }} disabled={authLoading || verifyCode.length !== 6}>
+                    {authLoading ? 'Đang xác thực...' : 'Xác thực & Vào hệ thống'} <span>→</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Form 4: FORGOT PASSWORD */}
+            {authTab === 'FORGOT_PASSWORD' && (
+              <form onSubmit={handleForgotPasswordSubmit} className="booking-form">
+                <p style={{ fontSize: '13px', color: '#555', lineHeight: 1.5, marginBottom: '12px' }}>
+                  Nhập địa chỉ email đăng ký để nhận mã 6 số khôi phục mật khẩu.
+                </p>
+                <div>
+                  <label>Email tài khoản</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="example@domain.com"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthTab('LOGIN'); setAuthError(null); setAuthMessage(null); }}
+                    style={{ background: 'none', border: 'none', fontSize: '12px', color: 'var(--sub)', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    ← Quay lại đăng nhập
+                  </button>
+                </div>
+
+                <div style={{ marginTop: '16px' }}>
+                  <button type="submit" className="button" style={{ width: '100%' }} disabled={authLoading}>
+                    {authLoading ? 'Đang gửi...' : 'Gửi mã khôi phục mật khẩu'} <span>→</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Form 5: RESET PASSWORD */}
+            {authTab === 'RESET_PASSWORD' && (
+              <form onSubmit={handleResetPasswordSubmit} className="booking-form">
+                <p style={{ fontSize: '13px', color: '#555', lineHeight: 1.5, marginBottom: '12px' }}>
+                  Nhập mã xác thực 6 số gửi tới <strong>{resetEmail}</strong> và đặt mật khẩu mới.
+                </p>
+                <div>
+                  <label>Mã xác thực 6 chữ số</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    placeholder="123456"
+                    value={resetCode}
+                    onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ''))}
+                    style={{ textAlign: 'center', fontSize: '18px', letterSpacing: '6px', fontWeight: 700 }}
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label>Mật khẩu mới (tối thiểu 8 ký tự, có chữ và số)</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={resetNewPassword}
+                    onChange={(e) => setResetNewPassword(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label>Nhập lại mật khẩu mới</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={resetConfirmPassword}
+                    onChange={(e) => setResetConfirmPassword(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthTab('LOGIN'); setAuthError(null); setAuthMessage(null); }}
+                    style={{ background: 'none', border: 'none', fontSize: '12px', color: 'var(--sub)', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    ← Quay lại đăng nhập
+                  </button>
+                </div>
+
+                <div style={{ marginTop: '16px' }}>
+                  <button type="submit" className="button" style={{ width: '100%' }} disabled={authLoading}>
+                    {authLoading ? 'Đang xử lý...' : 'Đặt lại mật khẩu & Đăng nhập'} <span>→</span>
                   </button>
                 </div>
               </form>

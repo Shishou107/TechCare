@@ -45,7 +45,7 @@ public partial class User
 
     public DateTime? UpdatedAtUtc { get; set; }
 
-    public byte[] RowVersion { get; set; } = null!;
+    public byte[] RowVersion { get; set; } = new byte[8];
 
     public virtual User? DeletedByUser { get; set; }
 

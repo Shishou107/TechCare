@@ -1,3 +1,4 @@
+using API_FixComputerCenter.Infrastructure.Email;
 using System.Text;
 using System.Threading.RateLimiting;
 using API_FixComputerCenter.Application.Common.Interfaces;
@@ -66,6 +67,17 @@ public static class DependencyInjection
         services.AddScoped<IAiChatService, AiChatService>();
         services.AddScoped<ISmsProvider, LogOnlySmsProvider>();
         services.AddScoped<IOtpAuthService, OtpAuthService>();
+
+        // Email Provider (LogOnly in dev/test, Smtp in production when host is set)
+        var smtpHost = configuration["TECHCARE_SMTP_HOST"] ?? configuration["Email:Smtp:Host"];
+        if (!string.IsNullOrWhiteSpace(smtpHost))
+        {
+            services.AddScoped<IEmailSender, SmtpEmailSender>();
+        }
+        else
+        {
+            services.AddScoped<IEmailSender, LogOnlyEmailSender>();
+        }
 
         // 3. FluentValidation & MemoryCache
         services.AddMemoryCache();

@@ -35,7 +35,7 @@ public partial class Customer
 
     public long? UserId { get; set; }
 
-    public byte[] RowVersion { get; set; } = null!;
+    public byte[] RowVersion { get; set; } = new byte[8];
 
     public virtual User? User { get; set; }
 

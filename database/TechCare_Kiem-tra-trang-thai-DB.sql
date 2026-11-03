@@ -1,6 +1,6 @@
 /* ============================================================================
    TechCare — Script KIEM TRA TRANG THAI DATABASE v3 (chi doc, khong sua)
-   Ban v3: cap nhat theo ban FULL moi nhat (42 bang, gom migration 005)
+   Ban v4: cap nhat theo ban FULL moi nhat (43 bang, gom migration 005)
    va them muc kiem tra rieng cho migration 005. Van chiu duoc DB trong:
    muc chua co se bao THIEU thay vi dung loi.
    Cach dung: SSMS -> ket noi .\SQLEXPRESS -> chon dung database TechCare
@@ -24,7 +24,7 @@ FROM sys.schemas
 WHERE name IN (N'Core',N'Security',N'CRM',N'Repair',N'Inventory',N'Billing',N'Warranty',N'Comms',N'Audit',N'Ai',N'Shipping');
 
 -- 2. Tong so bang (ban hoan chinh: 42)
-INSERT #R SELECT N'Tong so bang', CASE WHEN COUNT(*) = 42 THEN N'DAT' ELSE N'THIEU' END,
+INSERT #R SELECT N'Tong so bang', CASE WHEN COUNT(*) >= 43 THEN N'DAT' ELSE N'THIEU' END,
        N'Tim thay ' + CAST(COUNT(*) AS nvarchar(5)) + N'/42 bang'
 FROM sys.tables;
 
@@ -122,6 +122,14 @@ INSERT #R SELECT N'[005] OtpCodes + TechnicianProfiles + TicketRatings + Custome
              AND COL_LENGTH(N'Repair.RepairTickets', N'PreferredTechnicianUserId') IS NOT NULL
             THEN N'DAT' ELSE N'THIEU' END,
        N'Neu dung file FULL moi nhat thi muc nay co san sau khi cai DB';
+
+-- 15. Migration 006: EmailTokens + DeliveryMethod + PickupAddress
+INSERT #R SELECT N'[006] EmailTokens + Appointments.DeliveryMethod + Appointments.PickupAddress',
+       CASE WHEN OBJECT_ID(N'Security.EmailTokens', N'U') IS NOT NULL
+             AND COL_LENGTH(N'CRM.Appointments', N'DeliveryMethod') IS NOT NULL
+             AND COL_LENGTH(N'CRM.Appointments', N'PickupAddress') IS NOT NULL
+            THEN N'DAT' ELSE N'THIEU' END,
+       N'Ho tro dang ky email, dat lai mat khau va hinh thuc gui may';
 
 SELECT HangMuc AS [Hạng Mục], TrangThai AS [Trạng Thái], ChiTiet AS [Chi Tiết] FROM #R;
 DROP TABLE #R;

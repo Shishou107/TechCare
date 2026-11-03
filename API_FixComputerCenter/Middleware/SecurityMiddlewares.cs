@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using API_FixComputerCenter.Application.Common.Exceptions;
 using API_FixComputerCenter.Domain.Exceptions;
@@ -46,6 +46,15 @@ public class ExceptionHandlingMiddleware
 
         switch (exception)
         {
+            case EmailNotVerifiedException emailEx:
+                context.Response.StatusCode = (int)HttpStatusCode.Forbidden;
+                problemDetails.Title = "Email Not Verified";
+                problemDetails.Status = (int)HttpStatusCode.Forbidden;
+                problemDetails.Detail = emailEx.Message;
+                problemDetails.Extensions["errorCode"] = "EMAIL_NOT_VERIFIED";
+                problemDetails.Extensions["email"] = emailEx.Email;
+                break;
+
             case ValidationException valEx:
                 context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
                 problemDetails.Title = "Validation Error";
