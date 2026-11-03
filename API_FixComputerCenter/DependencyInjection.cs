@@ -75,7 +75,19 @@ public static class DependencyInjection
         // 4. Authentication (JWT Bearer)
         var rawKey = configuration["Jwt:Key"];
         var jwtKey = !string.IsNullOrWhiteSpace(rawKey) ? rawKey : (Environment.GetEnvironmentVariable("TECHCARE_JWT_SECRET") ?? Environment.GetEnvironmentVariable("Jwt__Key"));
-        if (string.IsNullOrWhiteSpace(jwtKey)) throw new InvalidOperationException("Cấu hình 'Jwt:Key' không tồn tại! Vui lòng thiết lập biến môi trường 'TECHCARE_JWT_SECRET' hoặc .NET User-Secrets (tối thiểu 32 ký tự).");
+                var isDev = string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(configuration["ASPNETCORE_ENVIRONMENT"], "Development", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(jwtKey))
+        {
+            if (isDev)
+            {
+                jwtKey = "TechCare_DevOnly_SecretKey_Minimum32Chars_2026_LocalDev!";
+            }
+            else
+            {
+                throw new InvalidOperationException("Cấu hình 'Jwt:Key' không tồn tại! Vui lòng thiết lập biến môi trường 'TECHCARE_JWT_SECRET' hoặc .NET User-Secrets (tối thiểu 32 ký tự).");
+            }
+        }
 
         services.AddAuthentication(options =>
         {

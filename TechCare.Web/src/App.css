@@ -4,7 +4,7 @@
   --mute: #9a9a9a;
   --sub: #7b7b7b;
   --line: #e4e4e0;
-  --pcb: #111111;
+  --pcb: #2ee59d;
   --card-bg: #ffffff;
 }
 
@@ -225,23 +225,28 @@ section.hero {
 }
 
 .status-dot-pcb {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--pcb);
-  box-shadow: 0 0 0 0 var(--pcb);
+  background: #2ee59d;
+  box-shadow: 0 0 0 0 rgba(46, 229, 157, 0.7);
   animation: pcbPulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+  display: inline-block;
+  flex-shrink: 0;
 }
 
 @keyframes pcbPulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.25);
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(46, 229, 157, 0.75);
   }
   70% {
-    box-shadow: 0 0 0 8px rgba(0, 0, 0, 0);
+    transform: scale(1);
+    box-shadow: 0 0 0 8px rgba(46, 229, 157, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(46, 229, 157, 0);
   }
 }
 
