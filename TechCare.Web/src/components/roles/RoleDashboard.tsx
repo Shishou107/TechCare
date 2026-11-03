@@ -39,10 +39,49 @@ export function RoleDashboard({ user, initialPath, onLogout, onNavigateHome }: R
   // Third-party integrations state (Phase 6)
   const [integrations, setIntegrations] = useState<{ smtpConfigured: boolean; mode: string; ghnConfigured: boolean } | null>(null)
   
+  // Staff users management (Phase 6 / Staff Provisioning)
+  const [staffUsers, setStaffUsers] = useState<any[]>([])
+  const [loadingStaff, setLoadingStaff] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createStaffForm, setCreateStaffForm] = useState({
+    userName: '',
+    fullName: '',
+    email: '',
+    phoneNumber: '',
+    password: '',
+    roleCode: 'TECHNICIAN',
+    specialty: '',
+    experienceYears: 1,
+  })
+  const [createStaffError, setCreateStaffError] = useState<string | null>(null)
+  const [createStaffSuccess, setCreateStaffSuccess] = useState<string | null>(null)
+  const [isSubmittingStaff, setIsSubmittingStaff] = useState(false)
+
   // Technicians management for admin (Phase 6B)
   const [adminTechs, setAdminTechs] = useState<any[]>([])
   const [savingTechId, setSavingTechId] = useState<number | null>(null)
   const [techMsg, setTechMsg] = useState<string | null>(null)
+
+  const fetchStaffUsers = () => {
+    setLoadingStaff(true)
+    fetch(`${API_BASE_URL}/api/v1/admin/users`, {
+      headers: {
+        Authorization: `Bearer ${user.token || localStorage.getItem('tc_token')}`,
+      },
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) setStaffUsers(data)
+      })
+      .catch(() => {})
+      .finally(() => setLoadingStaff(false))
+  }
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetchStaffUsers()
+    }
+  }, [isAdmin])
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/v1/integrations/status`)
@@ -90,6 +129,72 @@ export function RoleDashboard({ user, initialPath, onLogout, onNavigateHome }: R
       setTechMsg('Lỗi kết nối máy chủ.')
     } finally {
       setSavingTechId(null)
+    }
+  }
+
+  const handleToggleStaffActive = async (userId: number) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/admin/users/${userId}/toggle-active`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${user.token || localStorage.getItem('tc_token')}`,
+        },
+      })
+      if (res.ok) {
+        setStaffUsers((prev) =>
+          prev.map((u) => (u.userId === userId ? { ...u, isActive: !u.isActive } : u))
+        )
+      }
+    } catch {}
+  }
+
+  const handleCreateStaff = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setCreateStaffError(null)
+    setCreateStaffSuccess(null)
+    setIsSubmittingStaff(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/admin/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user.token || localStorage.getItem('tc_token')}`,
+        },
+        body: JSON.stringify(createStaffForm),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setCreateStaffError(data.error || 'Không thể tạo tài khoản nhân sự.')
+      } else {
+        setCreateStaffSuccess('Tạo tài khoản nhân sự thành công!')
+        fetchStaffUsers()
+        if (createStaffForm.roleCode === 'TECHNICIAN') {
+          fetch(`${API_BASE_URL}/api/v1/technicians/public`)
+            .then((r) => (r.ok ? r.json() : []))
+            .then((d) => {
+              if (Array.isArray(d)) setAdminTechs(d)
+            })
+            .catch(() => {})
+        }
+        setTimeout(() => {
+          setShowCreateModal(false)
+          setCreateStaffForm({
+            userName: '',
+            fullName: '',
+            email: '',
+            phoneNumber: '',
+            password: '',
+            roleCode: 'TECHNICIAN',
+            specialty: '',
+            experienceYears: 1,
+          })
+          setCreateStaffSuccess(null)
+        }, 1200)
+      }
+    } catch {
+      setCreateStaffError('Lỗi kết nối máy chủ.')
+    } finally {
+      setIsSubmittingStaff(false)
     }
   }
 
@@ -414,11 +519,350 @@ export function RoleDashboard({ user, initialPath, onLogout, onNavigateHome }: R
 
             {activeAdminSubTab === 'USERS' && (
               <div style={{ maxWidth: '1200px', margin: '24px auto', padding: '0 24px' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>Danh sách tài khoản & Vai trò</h3>
-                <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '12px', padding: '20px' }}>
-                  <p style={{ fontSize: '13px', color: '#666', lineHeight: 1.6 }}>
-                    Hệ thống xác thực JWT Bearer phân quyền theo từng Permission. Các vai trò gồm: <strong>ADMIN</strong>, <strong>RECEPTIONIST</strong>, <strong>TECHNICIAN</strong>, <strong>INVENTORY</strong>, <strong>CASHIER</strong>, <strong>SUPPORT</strong>.
-                  </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>Danh sách tài khoản & Phân quyền nhân sự</h3>
+                    <p style={{ fontSize: '12.5px', color: '#666', margin: '4px 0 0' }}>
+                      Cấp mới và quản lý tài khoản cho Kỹ thuật viên, Tư vấn viên (Support), Lễ tân, Thủ kho, Thu ngân và Admin.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateModal(true)
+                      setCreateStaffError(null)
+                      setCreateStaffSuccess(null)
+                    }}
+                    style={{
+                      background: '#111',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '8px 18px',
+                      borderRadius: '999px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                    }}
+                  >
+                    <span>+</span> Cấp tài khoản nhân sự
+                  </button>
+                </div>
+
+                {/* Modal Tạo tài khoản mới */}
+                {showCreateModal && (
+                  <div
+                    style={{
+                      position: 'fixed',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      background: 'rgba(0,0,0,0.45)',
+                      backdropFilter: 'blur(4px)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      zIndex: 1000,
+                      padding: '20px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        borderRadius: '14px',
+                        maxWidth: '540px',
+                        width: '100%',
+                        padding: '28px',
+                        boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+                        border: '1px solid var(--line)',
+                        maxHeight: '90vh',
+                        overflowY: 'auto',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <h4 style={{ fontSize: '17px', fontWeight: 700, margin: 0 }}>Cấp tài khoản nhân sự mới</h4>
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateModal(false)}
+                          style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      {createStaffError && (
+                        <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: '8px', fontSize: '12.5px', marginBottom: '14px' }}>
+                          {createStaffError}
+                        </div>
+                      )}
+                      {createStaffSuccess && (
+                        <div style={{ padding: '10px 14px', background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#065f46', borderRadius: '8px', fontSize: '12.5px', marginBottom: '14px' }}>
+                          {createStaffSuccess}
+                        </div>
+                      )}
+
+                      <form onSubmit={handleCreateStaff} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#444', marginBottom: '4px' }}>
+                              Tên đăng nhập *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="tech.namnv"
+                              value={createStaffForm.userName}
+                              onChange={(e) => setCreateStaffForm({ ...createStaffForm, userName: e.target.value })}
+                              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: '6px', fontSize: '13px' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#444', marginBottom: '4px' }}>
+                              Họ và tên *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="Nguyễn Văn Nam"
+                              value={createStaffForm.fullName}
+                              onChange={(e) => setCreateStaffForm({ ...createStaffForm, fullName: e.target.value })}
+                              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: '6px', fontSize: '13px' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#444', marginBottom: '4px' }}>
+                              Email công việc *
+                            </label>
+                            <input
+                              type="email"
+                              required
+                              placeholder="nam.tech@techcare.vn"
+                              value={createStaffForm.email}
+                              onChange={(e) => setCreateStaffForm({ ...createStaffForm, email: e.target.value })}
+                              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: '6px', fontSize: '13px' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#444', marginBottom: '4px' }}>
+                              Số điện thoại
+                            </label>
+                            <input
+                              type="tel"
+                              placeholder="0912345678"
+                              value={createStaffForm.phoneNumber}
+                              onChange={(e) => setCreateStaffForm({ ...createStaffForm, phoneNumber: e.target.value })}
+                              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: '6px', fontSize: '13px' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#444', marginBottom: '4px' }}>
+                            Mật khẩu khởi tạo * (tối thiểu 8 ký tự)
+                          </label>
+                          <input
+                            type="password"
+                            required
+                            minLength={8}
+                            placeholder="••••••••"
+                            value={createStaffForm.password}
+                            onChange={(e) => setCreateStaffForm({ ...createStaffForm, password: e.target.value })}
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: '6px', fontSize: '13px' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#444', marginBottom: '4px' }}>
+                            Vai trò / Chức vụ hệ thống *
+                          </label>
+                          <select
+                            value={createStaffForm.roleCode}
+                            onChange={(e) => setCreateStaffForm({ ...createStaffForm, roleCode: e.target.value })}
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: '6px', fontSize: '13px', background: '#fff' }}
+                          >
+                            <option value="TECHNICIAN">Kỹ thuật viên sửa chữa (TECHNICIAN)</option>
+                            <option value="SUPPORT">Nhân viên tư vấn & CSKH (SUPPORT)</option>
+                            <option value="RECEPTION">Lễ tân tiếp nhận máy (RECEPTION)</option>
+                            <option value="INVENTORY">Thủ kho linh kiện (INVENTORY)</option>
+                            <option value="CASHIER">Thu ngân & Thanh toán (CASHIER)</option>
+                            <option value="ADMIN">Quản trị viên hệ thống (ADMIN)</option>
+                          </select>
+                        </div>
+
+                        {createStaffForm.roleCode === 'TECHNICIAN' && (
+                          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>
+                              Thiết lập thông tin Kỹ thuật viên (Khách có thể chọn khi đặt lịch)
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11.5px', color: '#64748b', marginBottom: '3px' }}>
+                                Chuyên môn sở trường:
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Mainboard, Chipset, VGA, Màn hình OLED..."
+                                value={createStaffForm.specialty}
+                                onChange={(e) => setCreateStaffForm({ ...createStaffForm, specialty: e.target.value })}
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '12.5px' }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11.5px', color: '#64748b', marginBottom: '3px' }}>
+                                Số năm kinh nghiệm:
+                              </label>
+                              <input
+                                type="number"
+                                min={1}
+                                max={40}
+                                value={createStaffForm.experienceYears}
+                                onChange={(e) => setCreateStaffForm({ ...createStaffForm, experienceYears: parseInt(e.target.value) || 1 })}
+                                style={{ width: '100px', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '12.5px' }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setShowCreateModal(false)}
+                            style={{ padding: '8px 16px', background: '#f4f4f2', border: '1px solid var(--line)', borderRadius: '6px', fontSize: '12.5px', cursor: 'pointer' }}
+                          >
+                            Đóng
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isSubmittingStaff}
+                            style={{ padding: '8px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' }}
+                          >
+                            {isSubmittingStaff ? 'Đang tạo...' : 'Tạo tài khoản'}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bảng Danh sách nhân sự */}
+                <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '12px', overflow: 'hidden', marginBottom: '28px' }}>
+                  <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 600 }}>Tài khoản nhân sự trong xưởng ({staffUsers.length})</div>
+                    <button
+                      type="button"
+                      onClick={fetchStaffUsers}
+                      style={{ background: 'none', border: '1px solid var(--line)', borderRadius: '6px', padding: '4px 10px', fontSize: '11.5px', cursor: 'pointer' }}
+                    >
+                      {loadingStaff ? 'Đang tải...' : 'Làm mới ↻'}
+                    </button>
+                  </div>
+
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                      <thead>
+                        <tr style={{ background: '#fafaf8', borderBottom: '1px solid var(--line)', textAlign: 'left', color: '#666' }}>
+                          <th style={{ padding: '10px 16px', fontWeight: 600 }}>Nhân viên</th>
+                          <th style={{ padding: '10px 16px', fontWeight: 600 }}>Vai trò</th>
+                          <th style={{ padding: '10px 16px', fontWeight: 600 }}>Liên hệ</th>
+                          <th style={{ padding: '10px 16px', fontWeight: 600 }}>Trạng thái</th>
+                          <th style={{ padding: '10px 16px', fontWeight: 600, textAlign: 'right' }}>Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {staffUsers.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#888' }}>
+                              {loadingStaff ? 'Đang tải danh sách nhân viên...' : 'Chưa có tài khoản nhân sự nào.'}
+                            </td>
+                          </tr>
+                        ) : (
+                          staffUsers.map((u) => (
+                            <tr key={u.userId} style={{ borderBottom: '1px solid #f0f0ee' }}>
+                              <td style={{ padding: '12px 16px' }}>
+                                <div style={{ fontWeight: 600, color: '#111' }}>{u.fullName || u.userName}</div>
+                                <div style={{ fontSize: '11px', color: '#888' }}>@{u.userName}</div>
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                  {(u.roles || []).map((r: string) => (
+                                    <span
+                                      key={r}
+                                      style={{
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '10.5px',
+                                        fontWeight: 700,
+                                        letterSpacing: '0.03em',
+                                        background:
+                                          r === 'ADMIN'
+                                            ? '#111'
+                                            : r === 'TECHNICIAN'
+                                            ? '#ecfdf5'
+                                            : r === 'SUPPORT'
+                                            ? '#eff6ff'
+                                            : '#f4f4f2',
+                                        color:
+                                          r === 'ADMIN'
+                                            ? '#fff'
+                                            : r === 'TECHNICIAN'
+                                            ? '#065f46'
+                                            : r === 'SUPPORT'
+                                            ? '#1e40af'
+                                            : '#333',
+                                        border: r === 'ADMIN' ? 'none' : '1px solid var(--line)',
+                                      }}
+                                    >
+                                      {r}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                <div>{u.email}</div>
+                                {u.phoneNumber && <div style={{ fontSize: '11.5px', color: '#777' }}>{u.phoneNumber}</div>}
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                {u.isActive ? (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#059669', fontWeight: 600, fontSize: '11.5px' }}>
+                                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }}></span>
+                                    Hoạt động
+                                  </span>
+                                ) : (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#dc2626', fontWeight: 600, fontSize: '11.5px' }}>
+                                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444' }}></span>
+                                    Đang khoá
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleStaffActive(u.userId)}
+                                  style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    fontSize: '11.5px',
+                                    border: '1px solid var(--line)',
+                                    background: u.isActive ? '#fff' : '#111',
+                                    color: u.isActive ? '#dc2626' : '#fff',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {u.isActive ? 'Khoá tài khoản' : 'Kích hoạt lại'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 {/* Quản lý hồ sơ Kỹ thuật viên (Phase 6B) */}

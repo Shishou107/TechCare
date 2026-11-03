@@ -20,6 +20,21 @@ namespace API_FixComputerCenter.Endpoints;
 
 public record GuestRatingRequest(string Phone, int Score, string? Comment);
 
+public record CreateStaffUserRequest(
+    string UserName,
+    string? FullName,
+    string Email,
+    string? PhoneNumber,
+    string Password,
+    string Role,
+    int? BranchId = null,
+    string? Specialty = null,
+    string? Bio = null,
+    int? ExperienceYears = null,
+    bool? IsPublic = true,
+    bool? IsAcceptingRequests = true
+);
+
 public static class ApiEndpoints
 {
     private const string RefreshTokenCookieName = "tc_refresh_token";
@@ -190,6 +205,133 @@ public static class ApiEndpoints
             await auth.AdminRevokeUserSessionsAsync(userId);
             return Results.Ok(new { message = $"Đã thu hồi toàn bộ phiên đăng nhập của người dùng {userId}." });
         }).RequireAuthorization("Permission:USER.MANAGE");
+
+        // Admin User Management (Staff Accounts: Technician, Support, Reception, etc.)
+        var adminUsersGroup = app.MapGroup("/api/v1/admin/users").WithTags("Admin Users");
+
+        adminUsersGroup.MapGet("/", async (ITechCareDbContext db) =>
+        {
+            var users = await db.Users.AsNoTracking()
+                .Where(u => u.DeletedAtUtc == null)
+                .Include(u => u.UserRoleUsers)
+                    .ThenInclude(ur => ur.Role)
+                .Include(u => u.TechnicianProfile)
+                .OrderByDescending(u => u.UserId)
+                .Select(u => new
+                {
+                    u.UserId,
+                    u.UserName,
+                    u.Email,
+                    u.PhoneNumber,
+                    u.IsActive,
+                    u.IsEmailConfirmed,
+                    u.BranchId,
+                    u.CreatedAtUtc,
+                    Roles = u.UserRoleUsers.Select(ur => ur.Role.RoleCode).ToList(),
+                    TechnicianProfile = u.TechnicianProfile != null ? new
+                    {
+                        u.TechnicianProfile.ProfileId,
+                        u.TechnicianProfile.DisplayName,
+                        u.TechnicianProfile.Specialty,
+                        u.TechnicianProfile.ExperienceYears,
+                        u.TechnicianProfile.IsPublic,
+                        u.TechnicianProfile.IsAcceptingRequests
+                    } : null
+                })
+                .ToListAsync();
+
+            return Results.Ok(users);
+        }).RequireAuthorization();
+
+        adminUsersGroup.MapPost("/", async (CreateStaffUserRequest req, ITechCareDbContext db) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.UserName) || req.UserName.Trim().Length < 3)
+                return Results.BadRequest(new { message = "Tên đăng nhập phải có tối thiểu 3 ký tự." });
+            if (string.IsNullOrWhiteSpace(req.Email) || !req.Email.Contains("@"))
+                return Results.BadRequest(new { message = "Email không hợp lệ." });
+            if (string.IsNullOrWhiteSpace(req.Password) || req.Password.Length < 8)
+                return Results.BadRequest(new { message = "Mật khẩu khởi tạo tối thiểu 8 ký tự." });
+            if (string.IsNullOrWhiteSpace(req.Role))
+                return Results.BadRequest(new { message = "Vui lòng chọn vai trò nhân viên." });
+
+            var normalizedUsername = req.UserName.Trim().ToUpperInvariant();
+            var normalizedEmail = req.Email.Trim().ToUpperInvariant();
+
+            var exists = await db.Users.AnyAsync(u => u.NormalizedUserName == normalizedUsername || u.NormalizedEmail == normalizedEmail);
+            if (exists)
+                return Results.Conflict(new { message = "Tên đăng nhập hoặc Email đã tồn tại trong hệ thống." });
+
+            var targetRoleCode = req.Role.Trim().ToUpperInvariant();
+            if (targetRoleCode == "RECEPTIONIST") targetRoleCode = "RECEPTION";
+
+            var role = await db.Roles.FirstOrDefaultAsync(r => r.RoleCode == targetRoleCode || (targetRoleCode == "RECEPTION" && r.RoleCode == "RECEPTIONIST"));
+            if (role == null)
+                return Results.BadRequest(new { message = $"Vai trò '{req.Role}' không hợp lệ hoặc chưa được cấu hình trong hệ thống." });
+
+            var passwordHash = AuthService.HashPassword(req.Password);
+
+            var user = new User
+            {
+                BranchId = req.BranchId ?? 1,
+                UserName = req.UserName.Trim(),
+                NormalizedUserName = normalizedUsername,
+                Email = req.Email.Trim(),
+                NormalizedEmail = normalizedEmail,
+                PhoneNumber = string.IsNullOrWhiteSpace(req.PhoneNumber) ? null : req.PhoneNumber.Trim(),
+                PasswordHash = passwordHash,
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                IsEmailConfirmed = true,
+                IsActive = true,
+                CreatedAtUtc = DateTime.UtcNow
+            };
+
+            db.Users.Add(user);
+            await db.SaveChangesAsync();
+
+            db.UserRoles.Add(new UserRole
+            {
+                UserId = user.UserId,
+                RoleId = role.RoleId,
+                AssignedAtUtc = DateTime.UtcNow
+            });
+
+            if (targetRoleCode == "TECHNICIAN")
+            {
+                db.TechnicianProfiles.Add(new TechnicianProfile
+                {
+                    UserId = user.UserId,
+                    DisplayName = string.IsNullOrWhiteSpace(req.FullName) ? user.UserName : req.FullName.Trim(),
+                    Specialty = string.IsNullOrWhiteSpace(req.Specialty) ? "Kỹ thuật viên Phần cứng & Phần mềm" : req.Specialty.Trim(),
+                    Bio = req.Bio?.Trim() ?? "Chuyên viên kỹ thuật tiếp nhận và xử lý máy tính tại xưởng TechCare.",
+                    ExperienceYears = req.ExperienceYears ?? 2,
+                    IsPublic = req.IsPublic ?? true,
+                    IsAcceptingRequests = req.IsAcceptingRequests ?? true,
+                    DisplayOrder = 0,
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/v1/admin/users/{user.UserId}", new
+            {
+                success = true,
+                userId = user.UserId,
+                userName = user.UserName,
+                role = role.RoleCode,
+                message = $"Đã tạo thành công tài khoản nhân viên: {user.UserName} ({role.RoleName})."
+            });
+        }).RequireAuthorization();
+
+        adminUsersGroup.MapPut("/{userId:long}/toggle-active", async (long userId, ITechCareDbContext db) =>
+        {
+            var user = await db.Users.FirstOrDefaultAsync(u => u.UserId == userId);
+            if (user == null) return Results.NotFound(new { message = "Không tìm thấy người dùng." });
+            user.IsActive = !user.IsActive;
+            user.UpdatedAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { success = true, isActive = user.IsActive });
+        }).RequireAuthorization();
 
         authGroup.MapGet("/me", async (IAuthService auth) =>
         {
