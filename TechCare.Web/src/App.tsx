@@ -723,7 +723,7 @@ export default function App() {
             </div>
           </section>
 
-          {/* 4. PHOTO 2 EXACT RECREATION: DỊCH VỤ ("Máy cần gì, Mạch chăm nấy") */}
+          {/* 4. PHOTO 2 EXACT RECREATION: DỊCH VỤ ("Máy cần gì, Để Tech chăm.") */}
           <section className="services-section section-pad">
             <div className="section-heading">
               <div>
@@ -732,7 +732,7 @@ export default function App() {
                 </div>
                 <h2>
                   Máy cần gì, <br />
-                  <span className="soft">Mạch chăm nấy.</span>
+                  <span className="soft">Để Tech chăm.</span>
                 </h2>
               </div>
               <p className="section-intro">
