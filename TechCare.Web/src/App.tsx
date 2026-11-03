@@ -33,6 +33,100 @@ export default function App() {
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
 
+  // Customer OTP login state
+  const [loginTab, setLoginTab] = useState<'customer' | 'staff'>('customer')
+  const [customerPhone, setCustomerPhone] = useState('')
+  const [otpStep, setOtpStep] = useState<'phone' | 'code'>('phone')
+  const [otpCode, setOtpCode] = useState('')
+  const [otpCountdown, setOtpCountdown] = useState(0)
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [otpMessage, setOtpMessage] = useState<string | null>(null)
+  const [otpError, setOtpError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (otpCountdown <= 0) return
+    const timer = setInterval(() => {
+      setOtpCountdown((prev) => prev - 1)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [otpCountdown])
+
+  const handleRequestOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!customerPhone.trim()) {
+      setOtpError('Vui lòng nhập số điện thoại.')
+      return
+    }
+    setOtpLoading(true)
+    setOtpError(null)
+    setOtpMessage(null)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/otp/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber: customerPhone.trim() }),
+      })
+      if (res.ok) {
+        setOtpStep('code')
+        setOtpCountdown(60)
+        setOtpMessage('Mã xác thực 6 số đã được gửi qua SMS đến số điện thoại của bạn.')
+      } else {
+        const err = await res.json().catch(() => null)
+        setOtpError(err?.message || 'Không thể gửi mã xác thực. Vui lòng thử lại.')
+      }
+    } catch {
+      setOtpError('Không thể kết nối đến máy chủ.')
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!otpCode.trim() || otpCode.trim().length !== 6) {
+      setOtpError('Vui lòng nhập đầy đủ mã xác thực 6 số.')
+      return
+    }
+    setOtpLoading(true)
+    setOtpError(null)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber: customerPhone.trim(),
+          code: otpCode.trim(),
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const authUser: AuthUser = {
+          userId: data.user?.userId || data.userId || 0,
+          userName: data.user?.userName || customerPhone.trim(),
+          email: data.user?.email,
+          roles: data.user?.roles || ['CUSTOMER'],
+          permissions: data.user?.permissions || [],
+          token: data.accessToken,
+        }
+        localStorage.setItem('tc_token', data.accessToken)
+        localStorage.setItem('tc_user', JSON.stringify(authUser))
+        setCurrentUser(authUser)
+        setIsLoginOpen(false)
+        setCurrentRolePath('/tai-khoan')
+        setOtpStep('phone')
+        setOtpCode('')
+        setOtpMessage(null)
+      } else {
+        const err = await res.json().catch(() => null)
+        setOtpError(err?.message || 'Mã xác thực không hợp lệ hoặc đã hết hạn.')
+      }
+    } catch {
+      setOtpError('Không thể xác thực OTP. Vui lòng thử lại.')
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
   // Notification state with unread count persisted in localStorage
   const [readNotifIds, setReadNotifIds] = useState<string[]>(() => {
     try {
@@ -910,39 +1004,160 @@ export default function App() {
               </button>
             </div>
 
-            <form onSubmit={handleLoginSubmit} className="booking-form">
-              {loginError && (
-                <div style={{ color: '#dc2626', background: '#fef2f2', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '10px' }}>
-                  {loginError}
-                </div>
-              )}
-              <div>
-                <label>Tên đăng nhập hoặc Email</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="admin / technician / le-tan / kho"
-                  value={loginUsername}
-                  onChange={(e) => setLoginUsername(e.target.value)}
-                />
-              </div>
-              <div>
-                <label>Mật khẩu</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                />
-              </div>
+            {/* Tab Switcher: Khách hàng (OTP) vs Nhân viên */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '16px' }}>
+              <button
+                type="button"
+                onClick={() => { setLoginTab('customer'); setOtpError(null); setLoginError(null); }}
+                style={{
+                  flex: 1,
+                  padding: '10px 0',
+                  border: 'none',
+                  background: 'none',
+                  fontSize: '13.5px',
+                  fontWeight: loginTab === 'customer' ? 600 : 400,
+                  color: loginTab === 'customer' ? 'var(--ink)' : 'var(--sub)',
+                  borderBottom: loginTab === 'customer' ? '2px solid var(--ink)' : '2px solid transparent',
+                  cursor: 'pointer',
+                }}
+              >
+                Khách hàng (OTP)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setLoginTab('staff'); setOtpError(null); setLoginError(null); }}
+                style={{
+                  flex: 1,
+                  padding: '10px 0',
+                  border: 'none',
+                  background: 'none',
+                  fontSize: '13.5px',
+                  fontWeight: loginTab === 'staff' ? 600 : 400,
+                  color: loginTab === 'staff' ? 'var(--ink)' : 'var(--sub)',
+                  borderBottom: loginTab === 'staff' ? '2px solid var(--ink)' : '2px solid transparent',
+                  cursor: 'pointer',
+                }}
+              >
+                Nhân viên nội bộ
+              </button>
+            </div>
 
-              <div style={{ marginTop: '12px' }}>
-                <button type="submit" className="button" style={{ width: '100%' }} disabled={loginLoading}>
-                  {loginLoading ? 'Đang xác thực...' : 'Đăng nhập vào hệ thống'} <span>→</span>
-                </button>
+            {loginTab === 'customer' ? (
+              <div>
+                {otpError && (
+                  <div style={{ color: '#dc2626', background: '#fef2f2', padding: '8px 12px', borderRadius: '6px', fontSize: '12.5px', marginBottom: '12px' }}>
+                    {otpError}
+                  </div>
+                )}
+                {otpMessage && (
+                  <div style={{ color: '#065f46', background: '#ecfdf5', padding: '8px 12px', borderRadius: '6px', fontSize: '12.5px', marginBottom: '12px' }}>
+                    {otpMessage}
+                  </div>
+                )}
+
+                {otpStep === 'phone' ? (
+                  <form onSubmit={handleRequestOtp} className="booking-form">
+                    <div>
+                      <label>Số điện thoại đã đặt lịch / sửa máy</label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="09xx xxx xxx"
+                        value={customerPhone}
+                        onChange={(e) => setCustomerPhone(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                    <div style={{ marginTop: '12px' }}>
+                      <button type="submit" className="button" style={{ width: '100%' }} disabled={otpLoading}>
+                        {otpLoading ? 'Đang gửi mã...' : 'Gửi mã xác thực OTP'} <span>→</span>
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <form onSubmit={handleVerifyOtp} className="booking-form">
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <label style={{ margin: 0 }}>Mã xác thực 6 chữ số</label>
+                        <button
+                          type="button"
+                          onClick={() => { setOtpStep('phone'); setOtpCode(''); setOtpError(null); setOtpMessage(null); }}
+                          style={{ background: 'none', border: 'none', fontSize: '12px', color: 'var(--sub)', cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                          Đổi số điện thoại
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        placeholder="123456"
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                        style={{ textAlign: 'center', fontSize: '18px', letterSpacing: '6px', fontWeight: 700 }}
+                        autoFocus
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12.5px', marginTop: '6px' }}>
+                      <span style={{ color: 'var(--sub)' }}>Chưa nhận được mã?</span>
+                      {otpCountdown > 0 ? (
+                        <span style={{ color: 'var(--sub)' }}>Gửi lại sau <strong>{otpCountdown}s</strong></span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleRequestOtp()}
+                          disabled={otpLoading}
+                          style={{ background: 'none', border: 'none', color: 'var(--ink)', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                          Gửi lại mã OTP
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ marginTop: '14px' }}>
+                      <button type="submit" className="button" style={{ width: '100%' }} disabled={otpLoading || otpCode.length !== 6}>
+                        {otpLoading ? 'Đang xác thực...' : 'Xác nhận & Đăng nhập'} <span>→</span>
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
-            </form>
+            ) : (
+              <form onSubmit={handleLoginSubmit} className="booking-form">
+                {loginError && (
+                  <div style={{ color: '#dc2626', background: '#fef2f2', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '10px' }}>
+                    {loginError}
+                  </div>
+                )}
+                <div>
+                  <label>Tên đăng nhập hoặc Email</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="admin / technician / le-tan / kho"
+                    value={loginUsername}
+                    onChange={(e) => setLoginUsername(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label>Mật khẩu</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ marginTop: '12px' }}>
+                  <button type="submit" className="button" style={{ width: '100%' }} disabled={loginLoading}>
+                    {loginLoading ? 'Đang xác thực...' : 'Đăng nhập vào hệ thống'} <span>→</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

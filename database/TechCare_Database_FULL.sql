@@ -146,6 +146,35 @@ CREATE TABLE Security.RefreshTokens(
 );
 CREATE INDEX IX_RefreshTokens_Active ON Security.RefreshTokens(TokenHash) WHERE RevokedAtUtc IS NULL;
 
+CREATE TABLE Security.OtpCodes (
+    OtpId          bigint IDENTITY(1,1) CONSTRAINT PK_OtpCodes PRIMARY KEY,
+    PhoneNumber    nvarchar(20)   NOT NULL,
+    CodeHash       varbinary(32)  NOT NULL,
+    ExpiresAtUtc   datetime2(0)   NOT NULL,
+    FailedAttempts int            NOT NULL CONSTRAINT DF_OtpCodes_Failed DEFAULT 0,
+    ConsumedAtUtc  datetime2(0)   NULL,
+    IpAddress      nvarchar(45)   NULL,
+    CreatedAtUtc   datetime2(0)   NOT NULL CONSTRAINT DF_OtpCodes_CreatedAt DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_OtpCodes_Failed CHECK (FailedAttempts >= 0)
+);
+CREATE INDEX IX_OtpCodes_Phone_Active ON Security.OtpCodes (PhoneNumber, CreatedAtUtc DESC);
+
+CREATE TABLE Security.TechnicianProfiles (
+    ProfileId          bigint IDENTITY(1,1) CONSTRAINT PK_TechnicianProfiles PRIMARY KEY,
+    UserId             bigint         NOT NULL UNIQUE CONSTRAINT FK_TechProfile_User REFERENCES Security.Users(UserId) ON DELETE CASCADE,
+    DisplayName        nvarchar(150)  NOT NULL,
+    AvatarUrl          nvarchar(500)  NULL,
+    Specialty          nvarchar(250)  NOT NULL,
+    Bio                nvarchar(1000) NULL,
+    ExperienceYears    int            NOT NULL CONSTRAINT DF_TechProfile_Exp DEFAULT 1,
+    IsPublic           bit            NOT NULL CONSTRAINT DF_TechProfile_Public DEFAULT 1,
+    IsAcceptingRequests bit           NOT NULL CONSTRAINT DF_TechProfile_Accept DEFAULT 1,
+    DisplayOrder       int            NOT NULL CONSTRAINT DF_TechProfile_Order DEFAULT 0,
+    CreatedAtUtc       datetime2(0)   NOT NULL CONSTRAINT DF_TechProfile_CreatedAt DEFAULT SYSUTCDATETIME(),
+    UpdatedAtUtc       datetime2(0)   NULL
+);
+CREATE INDEX IX_TechProfile_PublicOrder ON Security.TechnicianProfiles (IsPublic, DisplayOrder, ProfileId);
+
 -- 4. CRM / CUSTOMERS & DEVICES
 CREATE TABLE CRM.Customers(
     CustomerId bigint IDENTITY PRIMARY KEY, 
@@ -158,12 +187,15 @@ CREATE TABLE CRM.Customers(
     District nvarchar(100), 
     Province nvarchar(100),
     Notes nvarchar(1000), 
+    UserId bigint NULL,
     IsActive bit NOT NULL DEFAULT 1, 
     CreatedAtUtc datetime2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
     UpdatedAtUtc datetime2(0), 
-    RowVersion rowversion
+    RowVersion rowversion,
+    CONSTRAINT FK_Customers_User FOREIGN KEY(UserId) REFERENCES Security.Users(UserId)
 );
 CREATE INDEX IX_Customers_Phone ON CRM.Customers(PhoneNumber);
+CREATE UNIQUE INDEX UX_Customers_UserId ON CRM.Customers(UserId) WHERE UserId IS NOT NULL;
 
 CREATE TABLE CRM.DeviceBrands(
     BrandId int IDENTITY PRIMARY KEY, 
@@ -200,9 +232,11 @@ CREATE TABLE CRM.Appointments(
     ScheduledAtUtc datetime2(0) NOT NULL, 
     Status nvarchar(20) NOT NULL DEFAULT N'BOOKED',
     IssueDescription nvarchar(1000), 
+    PreferredTechnicianUserId bigint NULL,
     CreatedAtUtc datetime2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT FK_Appointments_Branch FOREIGN KEY(BranchId) REFERENCES Core.Branches(BranchId),
     CONSTRAINT FK_Appointments_Customer FOREIGN KEY(CustomerId) REFERENCES CRM.Customers(CustomerId),
+    CONSTRAINT FK_Appointments_PrefTech FOREIGN KEY(PreferredTechnicianUserId) REFERENCES Security.Users(UserId),
     CONSTRAINT CK_Appointments_Status CHECK(Status IN(N'BOOKED',N'CONFIRMED',N'CANCELLED',N'COMPLETED',N'NO_SHOW'))
 );
 
@@ -216,6 +250,7 @@ CREATE TABLE Repair.RepairTickets(
     AppointmentId bigint,
     IntakeStaffUserId bigint NOT NULL, 
     AssignedTechnicianUserId bigint,
+    PreferredTechnicianUserId bigint NULL,
     Status nvarchar(30) NOT NULL DEFAULT N'RECEIVED',
     Priority nvarchar(15) NOT NULL DEFAULT N'NORMAL',
     CustomerReportedFault nvarchar(2000) NOT NULL, 
@@ -234,6 +269,7 @@ CREATE TABLE Repair.RepairTickets(
     CONSTRAINT FK_Tickets_Appointment FOREIGN KEY(AppointmentId) REFERENCES CRM.Appointments(AppointmentId),
     CONSTRAINT FK_Tickets_IntakeStaff FOREIGN KEY(IntakeStaffUserId) REFERENCES Security.Users(UserId),
     CONSTRAINT FK_Tickets_Technician FOREIGN KEY(AssignedTechnicianUserId) REFERENCES Security.Users(UserId),
+    CONSTRAINT FK_Tickets_PrefTech FOREIGN KEY(PreferredTechnicianUserId) REFERENCES Security.Users(UserId),
     CONSTRAINT CK_Tickets_Status CHECK(Status IN(N'RECEIVED',N'DIAGNOSING',N'WAITING_APPROVAL',N'APPROVED',N'WAITING_PARTS',N'REPAIRING',N'TESTING',N'READY_FOR_PICKUP',N'COMPLETED',N'CANCELLED')),
     CONSTRAINT CK_Tickets_Priority CHECK(Priority IN(N'LOW',N'NORMAL',N'HIGH',N'URGENT')),
     CONSTRAINT CK_Tickets_AccJson CHECK(AccessoriesJson IS NULL OR ISJSON(AccessoriesJson)=1)
@@ -543,6 +579,17 @@ CREATE TABLE Repair.TicketAttachments(
     CONSTRAINT CK_TA_Category CHECK(AttachmentCategory IN(N'INTAKE',N'DIAGNOSIS',N'REPAIR',N'QA',N'HANDOVER',N'OTHER'))
 );
 
+CREATE TABLE Repair.TicketRatings (
+    RatingId           bigint IDENTITY(1,1) CONSTRAINT PK_TicketRatings PRIMARY KEY,
+    RepairTicketId     bigint         NOT NULL UNIQUE CONSTRAINT FK_Rating_Ticket REFERENCES Repair.RepairTickets(RepairTicketId),
+    CustomerId         bigint         NOT NULL CONSTRAINT FK_Rating_Customer REFERENCES CRM.Customers(CustomerId),
+    TechnicianUserId   bigint         NOT NULL CONSTRAINT FK_Rating_Tech REFERENCES Security.Users(UserId),
+    Score              int            NOT NULL CONSTRAINT CK_Rating_Score CHECK (Score BETWEEN 1 AND 5),
+    Comment            nvarchar(1000) NULL,
+    CreatedAtUtc       datetime2(0)   NOT NULL CONSTRAINT DF_Rating_CreatedAt DEFAULT SYSUTCDATETIME()
+);
+CREATE INDEX IX_Ratings_TechScore ON Repair.TicketRatings (TechnicianUserId, Score);
+
 CREATE TABLE Comms.Notifications(
     NotificationId bigint IDENTITY PRIMARY KEY, 
     CustomerId bigint NULL, 
@@ -815,3 +862,4 @@ JOIN Core.Branches b ON b.BranchId = bs.BranchId
 JOIN Inventory.Parts p ON p.PartId = bs.PartId
 WHERE p.IsActive = 1;
 GO
+

@@ -1,3 +1,4 @@
+using API_FixComputerCenter.Domain.Entities;
 using API_FixComputerCenter.Domain.Entities.Shipping;
 using API_FixComputerCenter.Domain.Entities.Ai;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +13,7 @@ public partial class TechCareDbContext
     public virtual DbSet<KnowledgeChunk> KnowledgeChunks { get; set; } = null!;
     public virtual DbSet<ChatSession> ChatSessions { get; set; } = null!;
     public virtual DbSet<ChatMessage> ChatMessages { get; set; } = null!;
+    public virtual DbSet<OtpCode> OtpCodes { get; set; } = null!;
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
@@ -163,6 +165,32 @@ public partial class TechCareDbContext
             entity.HasOne(d => d.SenderUser)
                 .WithMany()
                 .HasForeignKey(d => d.SenderUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // 3. Customer OTP & Auth Schema
+        modelBuilder.Entity<OtpCode>(entity =>
+        {
+            entity.ToTable("OtpCodes", "Security");
+            entity.HasKey(e => e.OtpId);
+
+            entity.Property(e => e.PhoneNumber).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.CodeHash).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.ExpiresAtUtc).HasPrecision(0).IsRequired();
+            entity.Property(e => e.FailedAttempts).HasDefaultValue(0);
+            entity.Property(e => e.ConsumedAtUtc).HasPrecision(0);
+            entity.Property(e => e.IpAddress).HasMaxLength(45);
+            entity.Property(e => e.CreatedAtUtc).HasPrecision(0);
+
+            entity.HasIndex(e => new { e.PhoneNumber, e.CreatedAtUtc }, "IX_OtpCodes_Phone_Active");
+        });
+
+        modelBuilder.Entity<API_FixComputerCenter.Domain.Entities.Customer>(entity =>
+        {
+            entity.HasOne(d => d.User)
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_Customers_User")
                 .OnDelete(DeleteBehavior.SetNull);
         });
     }

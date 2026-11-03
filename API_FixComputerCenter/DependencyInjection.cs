@@ -14,6 +14,7 @@ using API_FixComputerCenter.Application.Features.Knowledge;
 using API_FixComputerCenter.Application.Features.Shipping;
 using API_FixComputerCenter.Infrastructure.Persistence;
 using API_FixComputerCenter.Infrastructure.Services;
+using API_FixComputerCenter.Infrastructure.Sms;
 using API_FixComputerCenter.Security.Authorization;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -63,6 +64,8 @@ public static class DependencyInjection
         services.AddScoped<IAiChatCompletionService, OpenAICompatibleChatCompletionService>();
         services.AddScoped<IKnowledgeService, KnowledgeService>();
         services.AddScoped<IAiChatService, AiChatService>();
+        services.AddScoped<ISmsProvider, LogOnlySmsProvider>();
+        services.AddScoped<IOtpAuthService, OtpAuthService>();
 
         // 3. FluentValidation & MemoryCache
         services.AddMemoryCache();
@@ -250,6 +253,18 @@ public static class DependencyInjection
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = 30,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0
+                    }));
+
+            // OTP Phone authentication rate limit (5 attempts per min per IP)
+            options.AddPolicy("OtpRateLimit", httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 5,
                         Window = TimeSpan.FromMinutes(1),
                         QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                         QueueLimit = 0

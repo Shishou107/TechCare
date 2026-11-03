@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { KnowledgeAdmin } from '../admin/KnowledgeAdmin'
 import { SupportChatInbox } from '../support/SupportChatInbox'
+import { CustomerPortal } from '../customer/CustomerPortal'
 
 export type UserRole = 'ADMIN' | 'RECEPTIONIST' | 'TECHNICIAN' | 'INVENTORY' | 'CASHIER' | 'SUPPORT' | 'CUSTOMER'
 
@@ -525,21 +526,7 @@ export function RoleDashboard({ user, initialPath, onLogout, onNavigateHome }: R
         {currentPath.startsWith('/ho-tro') && <SupportChatInbox />}
 
         {/* 7. CUSTOMER ACCOUNT (/tai-khoan) */}
-        {currentPath.startsWith('/tai-khoan') && (
-          <div style={{ maxWidth: '1000px', margin: '24px auto', padding: '0 24px' }}>
-            <div className="eyebrow">TRUNG TÂM KHÁCH HÀNG TECHCARE</div>
-            <h2 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '20px' }}>Hồ sơ Thiết bị & Lịch sử Sửa chữa</h2>
-
-            <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '12px', padding: '24px', marginBottom: '20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '13px' }}>
-                <div>Họ và tên: <strong>{user.userName}</strong></div>
-                <div>Email: <strong>{user.email || 'Chưa cập nhật'}</strong></div>
-                <div>Thiết bị liên kết: <strong>1 máy (Dell XPS 15)</strong></div>
-                <div>Gói bảo hiểm toàn phần: <strong>Đang kích hoạt</strong></div>
-              </div>
-            </div>
-          </div>
-        )}
+        {currentPath.startsWith('/tai-khoan') && <CustomerPortal user={user} onLogout={onLogout} />}
       </main>
     </div>
   )

@@ -70,6 +70,30 @@ public static class ApiEndpoints
             return Results.Ok(responseBody);
         }).RequireRateLimiting("LoginRateLimit").WithValidation<LoginRequest>();
 
+        authGroup.MapPost("/otp/request", async (RequestOtpRequest req, HttpContext ctx, IOtpAuthService otpSvc) =>
+        {
+            var ip = ctx.Connection.RemoteIpAddress?.ToString();
+            var res = await otpSvc.RequestOtpAsync(req.PhoneNumber, ip);
+            return Results.Ok(res);
+        }).RequireRateLimiting("OtpRateLimit");
+
+        authGroup.MapPost("/otp/verify", async (VerifyOtpRequest req, HttpContext ctx, IOtpAuthService otpSvc) =>
+        {
+            var ip = ctx.Connection.RemoteIpAddress?.ToString();
+            var ua = ctx.Request.Headers.UserAgent.ToString();
+            var result = await otpSvc.VerifyOtpAsync(req, ip, ua);
+
+            if (!string.IsNullOrEmpty(result.RefreshToken))
+            {
+                SetRefreshTokenCookie(ctx, result.RefreshToken);
+            }
+
+            var isBrowserClient = !string.Equals(ctx.Request.Headers["X-Client-Type"], "mobile", StringComparison.OrdinalIgnoreCase);
+            var responseBody = isBrowserClient ? result with { RefreshToken = null } : result;
+
+            return Results.Ok(responseBody);
+        }).RequireRateLimiting("OtpRateLimit");
+
         authGroup.MapPost("/refresh", async (RefreshTokenRequest? req, HttpContext ctx, IAuthService auth) =>
         {
             // Read from cookie first, fallback to request body for non-browser clients
@@ -345,6 +369,7 @@ public static class ApiEndpoints
         // Map Shipping & Webhook Endpoints
         app.MapShippingEndpoints();
         app.MapAiChatEndpoints();
+        app.MapCustomerEndpoints();
 
         return app;
     }

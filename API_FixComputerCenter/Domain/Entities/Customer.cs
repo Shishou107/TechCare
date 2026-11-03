@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace API_FixComputerCenter.Domain.Entities;
@@ -33,7 +33,11 @@ public partial class Customer
 
     public DateTime? UpdatedAtUtc { get; set; }
 
+    public long? UserId { get; set; }
+
     public byte[] RowVersion { get; set; } = null!;
+
+    public virtual User? User { get; set; }
 
     public virtual ICollection<Appointment> Appointments { get; set; } = new List<Appointment>();
 

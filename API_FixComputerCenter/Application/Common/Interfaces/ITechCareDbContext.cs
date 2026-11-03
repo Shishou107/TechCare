@@ -29,6 +29,7 @@ public interface ITechCareDbContext
     DbSet<QuotationItem> QuotationItems { get; }
     DbSet<Session> Sessions { get; }
     DbSet<RefreshToken> RefreshTokens { get; }
+    DbSet<OtpCode> OtpCodes { get; }
     DbSet<RepairPart> RepairParts { get; }
     DbSet<RepairTicket> RepairTickets { get; }
     DbSet<Role> Roles { get; }

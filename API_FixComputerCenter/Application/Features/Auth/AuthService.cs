@@ -31,6 +31,7 @@ public record UserProfileDto(long UserId, string UserName, string? Email, int? B
 public interface IAuthService
 {
     Task<AuthResponse> LoginAsync(LoginRequest req, string? ipAddress, string? userAgent, CancellationToken ct = default);
+    Task<AuthResponse> CreateSessionAndTokenForUserAsync(User user, string? ipAddress, string? userAgent, CancellationToken ct = default);
     Task<AuthResponse> RefreshTokenAsync(string rawRefreshToken, string? ipAddress, string? userAgent, CancellationToken ct = default);
     Task LogoutAsync(string? rawRefreshToken, Guid? sessionId, CancellationToken ct = default);
     Task LogoutAllAsync(long userId, CancellationToken ct = default);
@@ -129,6 +130,11 @@ public class AuthService : IAuthService
             await _db.SaveChangesAsync(ct);
         }
 
+        return await CreateSessionAndTokenForUserAsync(user, ipAddress, userAgent, ct);
+    }
+
+    public async Task<AuthResponse> CreateSessionAndTokenForUserAsync(User user, string? ipAddress, string? userAgent, CancellationToken ct = default)
+    {
         if (string.IsNullOrEmpty(user.SecurityStamp))
         {
             user.SecurityStamp = Guid.NewGuid().ToString();
