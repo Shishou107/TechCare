@@ -1,4 +1,6 @@
 using API_FixComputerCenter.Domain.Entities;
+using API_FixComputerCenter.Domain.Entities.Shipping;
+using API_FixComputerCenter.Domain.Entities.Ai;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 
@@ -39,6 +41,14 @@ public interface ITechCareDbContext
     DbSet<VwBranchStockStatus> VwBranchStockStatuses { get; }
     DbSet<Warranty> Warranties { get; }
     DbSet<WarrantyClaim> WarrantyClaims { get; }
+
+    // Shipping & AI Entities
+    DbSet<Shipment> Shipments { get; }
+    DbSet<ShipmentEvent> ShipmentEvents { get; }
+    DbSet<KnowledgeDocument> KnowledgeDocuments { get; }
+    DbSet<KnowledgeChunk> KnowledgeChunks { get; }
+    DbSet<ChatSession> ChatSessions { get; }
+    DbSet<ChatMessage> ChatMessages { get; }
 
     DatabaseFacade Database { get; }
     Microsoft.EntityFrameworkCore.ChangeTracking.ChangeTracker ChangeTracker { get; }

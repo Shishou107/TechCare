@@ -9,6 +9,7 @@ using API_FixComputerCenter.Application.Features.Diagnostics;
 using API_FixComputerCenter.Application.Features.Inventory;
 using API_FixComputerCenter.Application.Features.Quotations;
 using API_FixComputerCenter.Application.Features.Repairs;
+using API_FixComputerCenter.Application.Features.Shipping;
 using API_FixComputerCenter.Infrastructure.Persistence;
 using API_FixComputerCenter.Infrastructure.Services;
 using API_FixComputerCenter.Security.Authorization;
@@ -51,6 +52,11 @@ public static class DependencyInjection
         services.AddScoped<IDiagnosticService, DiagnosticService>();
         services.AddScoped<IQuotationService, QuotationService>();
         services.AddScoped<IInventoryService, InventoryService>();
+        services.AddHttpClient();
+        services.Configure<GhnOptions>(configuration.GetSection("Ghn"));
+        services.AddScoped<IShippingProvider, GhnShippingProvider>();
+        services.AddScoped<IShippingService, ShippingService>();
+        services.AddHostedService<ShipmentStatusSyncService>();
 
         // 3. FluentValidation & MemoryCache
         services.AddMemoryCache();
@@ -178,7 +184,9 @@ public static class DependencyInjection
                 "INVENTORY.READ", "INVENTORY.TRANSACT",
                 "BILLING.READ", "BILLING.COLLECT",
                 "WARRANTY.MANAGE", "REPORT.READ",
-                "USER.MANAGE", "ROLE.MANAGE", "AUDIT.READ"
+                "USER.MANAGE", "ROLE.MANAGE", "AUDIT.READ",
+                "SHIPPING.VIEW", "SHIPPING.CREATE", "SHIPPING.MANAGE",
+                "AI.KB.MANAGE", "AI.CHAT.VIEW", "AI.CHAT.REPLY"
             };
 
             foreach (var perm in permissions)
@@ -219,6 +227,30 @@ public static class DependencyInjection
 
             // Public tracking rate limit (20 queries per minute per IP to prevent harvesting)
             options.AddPolicy("TrackingRateLimit", httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 20,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0
+                    }));
+
+            // Public Shipping fee rate limit (30 queries per min)
+            options.AddPolicy("ShippingFeeRateLimit", httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 30,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0
+                    }));
+
+            // Public AI Chat rate limit (20 messages per min)
+            options.AddPolicy("ChatRateLimit", httpContext =>
                 RateLimitPartition.GetFixedWindowLimiter(
                     partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
                     factory: _ => new FixedWindowRateLimiterOptions

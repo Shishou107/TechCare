@@ -747,10 +747,10 @@ export default function App() {
 
                 const tagLabel =
                   notif.type === 'OPENING_HOURS'
-                    ? '🟢 Giờ hoạt động'
+                    ? 'Giờ hoạt động'
                     : notif.type === 'UPDATE'
-                    ? '⚡ Bản nâng cấp'
-                    : '🎁 Ưu đãi'
+                    ? 'Bản nâng cấp'
+                    : 'Ưu đãi'
 
                 return (
                   <div key={notif.id} className="notif-card-item">

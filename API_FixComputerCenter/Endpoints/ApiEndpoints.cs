@@ -1,3 +1,4 @@
+using API_FixComputerCenter.Application.Features.Shipping;
 using System.Security.Claims;
 using API_FixComputerCenter.Application.Common.Interfaces;
 using API_FixComputerCenter.Application.Common.Validators;
@@ -201,8 +202,8 @@ public static class ApiEndpoints
             });
         }).WithValidation<BookAppointmentRequest>();
 
-        // A6: Public tracking - requires both Code and Phone with masking
-        apptGroup.MapGet("/track", async (string? code, string? phone, string? keyword, IAppointmentService apptSvc, IRepairService repairSvc) =>
+        // A6: Public tracking - requires both Code and Phone with masking, includes real courier shipment
+        apptGroup.MapGet("/track", async (string? code, string? phone, string? keyword, IAppointmentService apptSvc, IRepairService repairSvc, IShippingService shippingSvc) =>
         {
             var lookupCode = code;
             var lookupPhone = phone;
@@ -222,13 +223,15 @@ public static class ApiEndpoints
             var appt = await apptSvc.TrackAppointmentAsync(lookupCode, lookupPhone);
             if (appt != null)
             {
-                return Results.Ok(new { found = true, type = "APPOINTMENT", data = appt });
+                var shipment = await shippingSvc.GetShipmentTrackingAsync(appt.AppointmentId, null);
+                return Results.Ok(new { found = true, type = "APPOINTMENT", data = appt, shipment });
             }
 
             var ticket = await repairSvc.TrackTicketAsync(lookupCode, lookupPhone);
             if (ticket != null)
             {
-                return Results.Ok(new { found = true, type = "REPAIR_TICKET", data = ticket });
+                var shipment = await shippingSvc.GetShipmentTrackingAsync(null, ticket.RepairTicketId);
+                return Results.Ok(new { found = true, type = "REPAIR_TICKET", data = ticket, shipment });
             }
 
             return Results.Ok(new { found = false, message = "Không tìm thấy thông tin lịch hẹn hoặc phiếu sửa chữa phù hợp với mã và số điện thoại đã cung cấp." });
@@ -338,6 +341,9 @@ public static class ApiEndpoints
             await svc.IssuePartToTicketAsync(req);
             return Results.Ok(new { success = true, message = "Xuất linh kiện thành công!" });
         }).RequireAuthorization("Permission:INVENTORY.TRANSACT").WithValidation<IssuePartRequest>();
+
+        // Map Shipping & Webhook Endpoints
+        app.MapShippingEndpoints();
 
         return app;
     }

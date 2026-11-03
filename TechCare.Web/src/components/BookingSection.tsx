@@ -82,6 +82,51 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
   const [submitting, setSubmitting] = useState(false)
   const [submitResult, setSubmitResult] = useState<{ success: boolean; code?: string; msg?: string; carrier?: string } | null>(null)
 
+  const [shippingPreview, setShippingPreview] = useState<{ fee: number; leadTime: string; loading: boolean }>({
+    fee: 35000,
+    leadTime: '2–3 ngày',
+    loading: false,
+  })
+
+  // Dynamic GHN Fee Preview Calculation
+  useEffect(() => {
+    if (formData.serviceType !== 'COURIER') return
+
+    let active = true
+    setShippingPreview((prev) => ({ ...prev, loading: true }))
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/shipping/fee-preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            toProvince: formData.province,
+            toDistrict: formData.district,
+            toWard: formData.ward,
+            weightGrams: 2500,
+            insuranceValue: formData.insuredLaptop ? 15000000 : 0,
+          }),
+        })
+        if (res.ok && active) {
+          const data = await res.json()
+          setShippingPreview({
+            fee: data.totalFee || 35000,
+            leadTime: data.expectedDeliveryDate ? new Date(data.expectedDeliveryDate).toLocaleDateString('vi-VN') : '2–3 ngày',
+            loading: false,
+          })
+        }
+      } catch {
+        if (active) setShippingPreview((prev) => ({ ...prev, loading: false }))
+      }
+    }, 400)
+
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [formData.serviceType, formData.province, formData.district, formData.ward, formData.insuredLaptop])
+
   // Sync issue description when selected from symptoms or services
   useEffect(() => {
     if (selectedIssue) {
@@ -486,7 +531,11 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
                           />
                           <div className="carrier-info">
                             <strong>Giao Hàng Nhanh (GHN Express)</strong>
-                            <span>Dự kiến: 2–3 ngày · Phí cước ước tính: 35.000đ</span>
+                            <span>
+                              {shippingPreview.loading
+                                ? 'Đang tính cước theo địa chỉ...'
+                                : `Dự kiến: ${shippingPreview.leadTime} · Phí cước tự động: ${shippingPreview.fee.toLocaleString('vi-VN')}đ`}
+                            </span>
                           </div>
                           <span className="carrier-tag-mono">Đề xuất</span>
                         </label>

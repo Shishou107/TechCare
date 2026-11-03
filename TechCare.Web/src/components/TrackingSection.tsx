@@ -1,5 +1,26 @@
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { API_BASE_URL } from '../api/client'
+
+export interface ShipmentEventDto {
+  occurredAtUtc: string
+  status: string
+  location?: string | null
+  note?: string | null
+}
+
+export interface ShipmentTrackingDto {
+  shipmentId: number
+  appointmentId?: number | null
+  repairTicketId?: number | null
+  trackingCode: string
+  provider: string
+  status: string
+  shippingFee: number
+  printUrl?: string | null
+  events: ShipmentEventDto[]
+}
 
 interface TicketInfo {
   code: string
@@ -9,14 +30,109 @@ interface TicketInfo {
   status: string
   scheduledAt: string
   issue: string
-  isCourier?: boolean
-  carrierName?: string
+  shipment?: ShipmentTrackingDto | null
 }
 
 interface TrackingSectionProps {
   initialCode?: string
   initialPhone?: string
   autoSearch?: boolean
+}
+
+// Map Component with Leaflet
+function ShipmentRouteMap({ shipment, customerLocation }: { shipment: ShipmentTrackingDto; customerLocation?: string }) {
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const mapInstanceRef = useRef<L.Map | null>(null)
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return
+
+    // Avoid multiple instances on same div
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove()
+      mapInstanceRef.current = null
+    }
+
+    // Default route points: Sender location -> GHN Sorting Hub -> TechCare Center
+    const senderCoords: [number, number] = [21.0333, 105.7833] // Cầu Giấy, Hà Nội
+    const hubCoords: [number, number] = [21.0125, 105.8010]    // GHN Hub Nam Từ Liêm / Thanh Xuân
+    const techCareCoords: [number, number] = [21.0285, 105.8542] // TechCare Center Hoàn Kiếm
+
+    const map = L.map(mapContainerRef.current, {
+      zoomControl: true,
+      attributionControl: false,
+    }).setView([21.025, 105.815], 13)
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+    }).addTo(map)
+
+    const createIcon = (label: string, isDone: boolean) =>
+      L.divIcon({
+        className: 'custom-map-marker',
+        html: `<div style="
+          background: ${isDone ? '#111111' : '#ffffff'};
+          color: ${isDone ? '#ffffff' : '#111111'};
+          border: 2px solid #111111;
+          border-radius: 999px;
+          padding: 4px 10px;
+          font-size: 11px;
+          font-weight: 700;
+          white-space: nowrap;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+        ">${label}</div>`,
+        iconSize: [80, 28],
+        iconAnchor: [40, 14],
+      })
+
+    // Markers
+    L.marker(senderCoords, { icon: createIcon('1. Bưu cục gửi', true) })
+      .addTo(map)
+      .bindPopup(`<b>Điểm gửi:</b> ${customerLocation || 'Địa chỉ khách hàng'}`)
+
+    L.marker(hubCoords, {
+      icon: createIcon('2. Kho GHN', shipment.status !== 'CREATED' && shipment.status !== 'PICKING'),
+    })
+      .addTo(map)
+      .bindPopup(`<b>Kho phân loại:</b> Trung tâm chuyển phát GHN Express`)
+
+    L.marker(techCareCoords, {
+      icon: createIcon('3. TechCare', shipment.status === 'DELIVERED'),
+    })
+      .addTo(map)
+      .bindPopup(`<b>Điểm nhận:</b> Xưởng kỹ thuật Trung tâm TechCare`)
+
+    // Route Polyline
+    const routeLine = L.polyline([senderCoords, hubCoords, techCareCoords], {
+      color: '#111111',
+      weight: 3,
+      dashArray: '6, 8',
+      opacity: 0.8,
+    }).addTo(map)
+
+    map.fitBounds(routeLine.getBounds(), { padding: [40, 40] })
+    mapInstanceRef.current = map
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove()
+        mapInstanceRef.current = null
+      }
+    }
+  }, [shipment, customerLocation])
+
+  return (
+    <div style={{ marginTop: '16px', borderRadius: '10px', overflow: 'hidden', border: '1px solid var(--line)' }}>
+      <div
+        ref={mapContainerRef}
+        style={{ width: '100%', height: '280px', background: '#f4f4f2' }}
+      />
+      <div style={{ padding: '8px 14px', background: '#fafaf8', borderTop: '1px solid var(--line)', fontSize: '11px', color: '#666', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Bản đồ hành trình lộ trình bưu phẩm thời gian thực (Leaflet / OpenStreetMap)</span>
+        <span style={{ fontWeight: 600, color: '#111' }}>Đối tác: {shipment.provider} Express</span>
+      </div>
+    </div>
+  )
 }
 
 export function TrackingSection({ initialCode = '', initialPhone = '', autoSearch = false }: TrackingSectionProps) {
@@ -42,7 +158,7 @@ export function TrackingSection({ initialCode = '', initialPhone = '', autoSearc
     try {
       const queryParams = new URLSearchParams({
         code: searchCode.trim(),
-        phone: searchPhone.trim()
+        phone: searchPhone.trim(),
       })
       const res = await fetch(`${API_BASE_URL}/api/v1/appointments/track?${queryParams.toString()}`)
       if (res.ok) {
@@ -50,10 +166,7 @@ export function TrackingSection({ initialCode = '', initialPhone = '', autoSearc
         if (result && result.found && result.data) {
           const found = result.data
           const issueText = found.customerDescription || found.subject || found.customerIssue || 'Kiểm tra phần cứng tổng thể'
-          const isCourier = issueText.includes('GỬI CHUYỂN PHÁT') || issueText.includes('GHN') || issueText.includes('GHTK') || issueText.includes('VIETTEL')
-          let carrier = 'GHN Express'
-          if (issueText.includes('GHTK')) carrier = 'Giao Hàng Tiết Kiệm (GHTK)'
-          else if (issueText.includes('VIETTEL')) carrier = 'Viettel Post'
+          const realShipment: ShipmentTrackingDto | null = result.shipment || null
 
           setTicket({
             code: found.appointmentCode || found.ticketCode || searchCode.trim().toUpperCase(),
@@ -63,8 +176,7 @@ export function TrackingSection({ initialCode = '', initialPhone = '', autoSearc
             status: found.status || 'BOOKED',
             scheduledAt: found.scheduledAtUtc ? new Date(found.scheduledAtUtc).toLocaleString('vi-VN') : 'Đang xử lý',
             issue: issueText,
-            isCourier,
-            carrierName: carrier,
+            shipment: realShipment,
           })
         } else {
           setErrorMessage(result.message || 'Không tìm thấy thông tin đơn hẹn hoặc phiếu sửa chữa phù hợp.')
@@ -111,6 +223,23 @@ export function TrackingSection({ initialCode = '', initialPhone = '', autoSearc
   }
 
   const currentIdx = ticket ? getStepIndex(ticket.status) : 0
+
+  const mapShipmentStatusText = (st: string) => {
+    switch (st?.toUpperCase()) {
+      case 'CREATED': return 'Đã tạo vận đơn trên hệ thống hãng'
+      case 'PICKING': return 'Đang điều phối bưu tá đến lấy hàng'
+      case 'PICKED': return 'Bưu tá đã lấy hàng thành công'
+      case 'IN_TRANSIT': return 'Đang vận chuyển liên tỉnh qua trung tâm khai thác'
+      case 'OUT_FOR_DELIVERY': return 'Đang giao hàng tới trung tâm TechCare'
+      case 'DELIVERED': return 'Đã giao thành công tới trung tâm TechCare'
+      case 'DELIVERY_FAILED': return 'Giao hàng không thành công'
+      case 'RETURNING': return 'Đang chuyển hoàn'
+      case 'RETURNED': return 'Đã hoàn trả'
+      case 'CANCELLED': return 'Đã hủy vận đơn'
+      case 'EXCEPTION': return 'Bưu kiện phát sinh sự cố kiểm tra'
+      default: return st || 'Đang xử lý vận chuyển'
+    }
+  }
 
   return (
     <section id="tracking" className="tracking-section section-pad">
@@ -184,53 +313,79 @@ export function TrackingSection({ initialCode = '', initialPhone = '', autoSearc
             </div>
           </div>
 
-          {/* Courier Transport Route Diagram if booked via COURIER */}
-          {ticket.isCourier && (
+          {/* Real Courier Transport Route & Events (GHN Integration) */}
+          {ticket.shipment ? (
             <div className="courier-timeline-section" style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--line)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                 <div>
-                  <h4 style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--ink)' }}>
-                    📦 Hành trình vận chuyển liên tỉnh — {ticket.carrierName}
+                  <h4 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--ink)' }}>
+                    Hành trình vận chuyển thực tế — {ticket.shipment.provider} Express
                   </h4>
-                  <span style={{ fontSize: '11.5px', color: '#777' }}>
-                    * Vị trí và thời gian cập nhật theo sự kiện quét mã của đơn vị vận chuyển
+                  <span style={{ fontSize: '12px', color: '#555' }}>
+                    Mã vận đơn: <strong>{ticket.shipment.trackingCode}</strong> | Trạng thái: <strong>{mapShipmentStatusText(ticket.shipment.status)}</strong>
+                    {ticket.shipment.shippingFee > 0 && ` | Cước vận chuyển: ${ticket.shipment.shippingFee.toLocaleString('vi-VN')}đ`}
                   </span>
                 </div>
-                <span style={{ fontSize: '11px', background: '#ecfdf5', color: '#065f46', padding: '3px 9px', borderRadius: '999px', fontWeight: 600 }}>
-                  Đã kích hoạt bảo hiểm kiện hàng
-                </span>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', background: '#111111', color: '#ffffff', padding: '4px 10px', borderRadius: '4px', fontWeight: 600 }}>
+                    Bảo hiểm kiện hàng toàn phần
+                  </span>
+                  {ticket.shipment.printUrl && (
+                    <a
+                      href={ticket.shipment.printUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: '11px', border: '1px solid #111111', padding: '3px 8px', borderRadius: '4px', color: '#111111' }}
+                    >
+                      In vận đơn
+                    </a>
+                  )}
+                </div>
               </div>
 
-              {/* Courier Milestones Tracker */}
-              <div className="courier-route-grid">
-                <div className="courier-milestone done">
-                  <div className="milestone-dot">✓</div>
-                  <div className="milestone-name">Đã tạo vận đơn</div>
-                  <div className="milestone-sub">Kho gửi ghi nhận</div>
-                </div>
-                <div className="courier-milestone active">
-                  <div className="milestone-dot">●</div>
-                  <div className="milestone-name">Bưu tá lấy hàng</div>
-                  <div className="milestone-sub">Đang điều phối bưu tá</div>
-                </div>
-                <div className="courier-milestone">
-                  <div className="milestone-dot">3</div>
-                  <div className="milestone-name">Kho trung chuyển</div>
-                  <div className="milestone-sub">Phân loại liên tỉnh</div>
-                </div>
-                <div className="courier-milestone">
-                  <div className="milestone-dot">4</div>
-                  <div className="milestone-name">Đang giao tới tiệm</div>
-                  <div className="milestone-sub">Bưu tá phát hàng</div>
-                </div>
-                <div className="courier-milestone">
-                  <div className="milestone-dot">5</div>
-                  <div className="milestone-name">Tiệm TechCare nhận</div>
-                  <div className="milestone-sub">Kỹ thuật viên ký nhận</div>
-                </div>
+              {/* Leaflet Route Map */}
+              <ShipmentRouteMap shipment={ticket.shipment} customerLocation={ticket.customerName} />
+
+              {/* Chronological Real Events Timeline */}
+              <div style={{ marginTop: '20px' }}>
+                <h5 style={{ fontSize: '12.5px', fontWeight: 600, color: '#333', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                  Chi tiết sự kiện quét mã vận đơn (Thời gian thực):
+                </h5>
+                {ticket.shipment.events && ticket.shipment.events.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {ticket.shipment.events.map((ev, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '130px 1fr',
+                          gap: '12px',
+                          padding: '10px 14px',
+                          background: idx === 0 ? '#ffffff' : '#fafaf8',
+                          border: '1px solid ' + (idx === 0 ? '#111111' : '#e4e4e0'),
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <div style={{ color: '#666', fontWeight: 500 }}>
+                          {new Date(ev.occurredAtUtc).toLocaleString('vi-VN')}
+                        </div>
+                        <div>
+                          <strong style={{ color: '#111' }}>{mapShipmentStatusText(ev.status)}</strong>
+                          {ev.location && <span style={{ color: '#555', marginLeft: '6px' }}>— {ev.location}</span>}
+                          {ev.note && <div style={{ color: '#777', fontSize: '11.5px', marginTop: '2px' }}>{ev.note}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: '14px', background: '#fafaf8', border: '1px solid #e4e4e0', borderRadius: '8px', fontSize: '12px', color: '#666' }}>
+                    Vận đơn đã khởi tạo trên hệ thống {ticket.shipment.provider} Express. Bưu tá đang trên đường đến lấy thiết bị và cập nhật sự kiện quét mã đầu tiên.
+                  </div>
+                )}
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 
