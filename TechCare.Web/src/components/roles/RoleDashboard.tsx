@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { KnowledgeAdmin } from '../admin/KnowledgeAdmin'
 import { SupportChatInbox } from '../support/SupportChatInbox'
 import { CustomerPortal } from '../customer/CustomerPortal'
+import { API_BASE_URL } from '../../api/client'
 
 export type UserRole = 'ADMIN' | 'RECEPTIONIST' | 'TECHNICIAN' | 'INVENTORY' | 'CASHIER' | 'SUPPORT' | 'CUSTOMER'
 
@@ -33,7 +34,89 @@ export function RoleDashboard({ user, initialPath, onLogout, onNavigateHome }: R
   const isCashier = isAdmin || user.roles.includes('CASHIER')
   const isSupport = isAdmin || user.roles.includes('SUPPORT')
 
-  const [activeAdminSubTab, setActiveAdminSubTab] = useState<'KNOWLEDGE' | 'USERS' | 'AUDIT'>('KNOWLEDGE')
+  const [activeAdminSubTab, setActiveAdminSubTab] = useState<'KNOWLEDGE' | 'USERS' | 'AUDIT' | 'INTEGRATIONS'>('KNOWLEDGE')
+  
+  // Third-party integrations state (Phase 6)
+  const [integrations, setIntegrations] = useState<{ smtpConfigured: boolean; mode: string; ghnConfigured: boolean } | null>(null)
+  
+  // Technicians management for admin (Phase 6B)
+  const [adminTechs, setAdminTechs] = useState<any[]>([])
+  const [savingTechId, setSavingTechId] = useState<number | null>(null)
+  const [techMsg, setTechMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/v1/integrations/status`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) setIntegrations(data)
+      })
+      .catch(() => {})
+
+    fetch(`${API_BASE_URL}/api/v1/technicians/public`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) setAdminTechs(data)
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleUpdateTechProfile = async (tech: any) => {
+    setSavingTechId(tech.userId)
+    setTechMsg(null)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/technicians/${tech.userId}/profile`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user.token || localStorage.getItem('tc_token')}`,
+        },
+        body: JSON.stringify({
+          displayName: tech.displayName,
+          specialty: tech.specialty,
+          avatarUrl: tech.avatarUrl,
+          bio: tech.bio,
+          experienceYears: tech.experienceYears,
+          isPublic: tech.isPublic !== false,
+          isAcceptingRequests: tech.isAcceptingRequests !== false,
+          displayOrder: tech.displayOrder || 0,
+        }),
+      })
+      if (res.ok) {
+        setTechMsg(`✓ Đã lưu hồ sơ kỹ thuật viên: ${tech.displayName}`)
+      } else {
+        setTechMsg('Không thể cập nhật hồ sơ.')
+      }
+    } catch {
+      setTechMsg('Lỗi kết nối máy chủ.')
+    } finally {
+      setSavingTechId(null)
+    }
+  }
+
+  // Reception appointments with Delivery Method (Phase 6C)
+  const [receptionAppointments] = useState([
+    {
+      appointmentId: 501,
+      customerName: 'Hoàng Quốc Việt',
+      customerPhone: '0933112233',
+      modelName: 'Lenovo Legion 5 Pro',
+      deliveryMethod: 'SHIP_IN',
+      pickupAddress: 'Số 18 Ngõ 86 Cầu Giấy, P. Quan Hoa, Cầu Giấy, Hà Nội',
+      issueDescription: '[GỬI CHUYỂN PHÁT GHN] Máy quạt kêu to, bốc khói nhẹ',
+      preferredTechnician: 'Lê Hoàng Nam',
+    },
+    {
+      appointmentId: 502,
+      customerName: 'Nguyễn Thị Bích',
+      customerPhone: '0977889900',
+      modelName: 'MacBook Air M1',
+      deliveryMethod: 'PICKUP',
+      pickupAddress: 'Tòa nhà Landmark 81, P. 22, Bình Thạnh, TP. Hồ Chí Minh',
+      issueDescription: '[GIAO NHẬN TẬN NƠI] Màn hình nhấp nháy liên tục',
+      preferredTechnician: 'TechCare sắp xếp',
+    },
+  ])
+
   const [receptionWaybills] = useState([
     { code: 'GHN-TC-2026110301', customer: 'Nguyễn Văn An', phone: '0912345678', model: 'Dell XPS 15 9520', status: 'IN_TRANSIT', fee: 38000, date: '03/11/2026' },
     { code: 'GHN-TC-2026110294', customer: 'Trần Thị Mai', phone: '0987654321', model: 'MacBook Pro M2 14"', status: 'DELIVERED', fee: 42000, date: '02/11/2026' },
@@ -310,6 +393,21 @@ export function RoleDashboard({ user, initialPath, onLogout, onNavigateHome }: R
               >
                 Nhật ký Kiểm toán (Audit Logs)
               </button>
+              <button
+                type="button"
+                onClick={() => setActiveAdminSubTab('INTEGRATIONS')}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: activeAdminSubTab === 'INTEGRATIONS' ? '2px solid #111' : 'none',
+                  fontWeight: activeAdminSubTab === 'INTEGRATIONS' ? 700 : 500,
+                  padding: '8px 4px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
+              >
+                Cấu hình Tích hợp (Integrations)
+              </button>
             </div>
 
             {activeAdminSubTab === 'KNOWLEDGE' && <KnowledgeAdmin />}
@@ -322,6 +420,107 @@ export function RoleDashboard({ user, initialPath, onLogout, onNavigateHome }: R
                     Hệ thống xác thực JWT Bearer phân quyền theo từng Permission. Các vai trò gồm: <strong>ADMIN</strong>, <strong>RECEPTIONIST</strong>, <strong>TECHNICIAN</strong>, <strong>INVENTORY</strong>, <strong>CASHIER</strong>, <strong>SUPPORT</strong>.
                   </p>
                 </div>
+
+                {/* Quản lý hồ sơ Kỹ thuật viên (Phase 6B) */}
+                <div style={{ marginTop: '24px' }}>
+                  <h4 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>
+                    Hồ sơ Kỹ thuật viên (Khách chọn & Đánh giá sao)
+                  </h4>
+                  {techMsg && (
+                    <div style={{ padding: '8px 12px', background: '#ecfdf5', color: '#065f46', borderRadius: '6px', fontSize: '12px', marginBottom: '12px' }}>
+                      {techMsg}
+                    </div>
+                  )}
+                  {adminTechs.length === 0 ? (
+                    <div style={{ padding: '14px', background: '#fafaf8', border: '1px solid var(--line)', borderRadius: '8px', fontSize: '12.5px', color: '#666' }}>
+                      Chưa có kỹ thuật viên nào trong hệ thống hoặc đang tải danh sách...
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
+                      {adminTechs.map((tech) => (
+                        <div key={tech.userId} style={{ border: '1px solid var(--line)', borderRadius: '10px', padding: '16px', background: '#fff' }}>
+                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
+                            <img
+                              src={tech.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
+                              alt={tech.displayName}
+                              style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover' }}
+                            />
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '14px' }}>{tech.displayName}</div>
+                              <div style={{ fontSize: '11.5px', color: 'var(--sub)' }}>
+                                {tech.ratingAverage !== null && tech.ratingCount > 0
+                                  ? `★ ${Number(tech.ratingAverage).toFixed(1)} (${tech.ratingCount} lượt)`
+                                  : 'Chưa có đánh giá'} · {tech.completedTicketsCount} đơn xong
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
+                            <div>
+                              <label style={{ color: 'var(--sub)', display: 'block', marginBottom: '2px' }}>Tên hiển thị:</label>
+                              <input
+                                type="text"
+                                value={tech.displayName}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setAdminTechs((prev) => prev.map((t) => (t.userId === tech.userId ? { ...t, displayName: val } : t)))
+                                }}
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '6px' }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ color: 'var(--sub)', display: 'block', marginBottom: '2px' }}>Chuyên môn:</label>
+                              <input
+                                type="text"
+                                value={tech.specialty}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setAdminTechs((prev) => prev.map((t) => (t.userId === tech.userId ? { ...t, specialty: val } : t)))
+                                }}
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: '6px' }}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', gap: '16px', marginTop: '4px' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={tech.isPublic !== false}
+                                  onChange={(e) => {
+                                    const val = e.target.checked
+                                    setAdminTechs((prev) => prev.map((t) => (t.userId === tech.userId ? { ...t, isPublic: val } : t)))
+                                  }}
+                                />
+                                Công khai cho khách chọn
+                              </label>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={tech.isAcceptingRequests !== false}
+                                  onChange={(e) => {
+                                    const val = e.target.checked
+                                    setAdminTechs((prev) => prev.map((t) => (t.userId === tech.userId ? { ...t, isAcceptingRequests: val } : t)))
+                                  }}
+                                />
+                                Đang nhận yêu cầu
+                              </label>
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: '12px', textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateTechProfile(tech)}
+                              disabled={savingTechId === tech.userId}
+                              style={{ background: '#111', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '6px', fontSize: '11.5px', cursor: 'pointer' }}
+                            >
+                              {savingTechId === tech.userId ? 'Đang lưu...' : 'Lưu hồ sơ'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -332,6 +531,84 @@ export function RoleDashboard({ user, initialPath, onLogout, onNavigateHome }: R
                   <p style={{ fontSize: '13px', color: '#666' }}>
                     Tất cả hành động sửa chữa, thay đổi trạng thái và xuất linh kiện được ghi log bất biến vào <code>Security.AuditLogs</code>.
                   </p>
+                </div>
+              </div>
+            )}
+
+            {activeAdminSubTab === 'INTEGRATIONS' && (
+              <div style={{ maxWidth: '1200px', margin: '24px auto', padding: '0 24px' }}>
+                <div style={{ marginBottom: '20px' }}>
+                  <div className="eyebrow">CẤU HÌNH TÍCH HỢP HỆ THỐNG</div>
+                  <h3 style={{ fontSize: '20px', fontWeight: 600 }}>Dịch vụ bên thứ ba & Thông báo</h3>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '20px' }}>
+                  {/* Card 1: Email SMTP */}
+                  <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '12px', padding: '20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <h4 style={{ fontSize: '15px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>✉️</span> Email (SMTP)
+                      </h4>
+                      <span
+                        style={{
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                          padding: '3px 10px',
+                          borderRadius: '999px',
+                          background: integrations?.smtpConfigured ? '#ecfdf5' : '#fef9c3',
+                          color: integrations?.smtpConfigured ? '#065f46' : '#854d0e',
+                          border: `1px solid ${integrations?.smtpConfigured ? '#a7f3d0' : '#fef08a'}`,
+                        }}
+                      >
+                        {integrations?.smtpConfigured ? '✓ Đã cấu hình' : 'Dev: Chế độ LogOnly'}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '12.5px', color: '#666', lineHeight: 1.6, marginBottom: '14px' }}>
+                      {integrations?.smtpConfigured
+                        ? 'Máy chủ SMTP đã được kích hoạt. Mã xác thực đăng ký, quên mật khẩu và thông báo sửa máy được gửi thật tới hòm thư khách hàng.'
+                        : 'Chưa cung cấp cấu hình máy chủ SMTP. Hệ thống đang hoạt động ở chế độ LogOnly (ghi log máy chủ để phát triển & kiểm thử miễn phí, không bị gián đoạn).'}
+                    </p>
+                    <div style={{ background: '#fafaf8', padding: '12px', borderRadius: '8px', fontSize: '11.5px', color: '#555', fontFamily: 'monospace' }}>
+                      Biến môi trường hỗ trợ:
+                      <br />• TECHCARE_SMTP_HOST
+                      <br />• TECHCARE_SMTP_PORT (587 / 465)
+                      <br />• TECHCARE_SMTP_USER
+                      <br />• TECHCARE_SMTP_PASSWORD
+                      <br />• TECHCARE_SMTP_FROM
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: 'var(--sub)', marginTop: '10px' }}>
+                      * Nicole có thể điền cấu hình SMTP vào biến môi trường hoặc user-secrets bất cứ lúc nào mà không cần sửa code.
+                    </div>
+                  </div>
+
+                  {/* Card 2: GHN Express */}
+                  <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '12px', padding: '20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <h4 style={{ fontSize: '15px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>🚚</span> Giao Hàng Nhanh (GHN Express)
+                      </h4>
+                      <span
+                        style={{
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                          padding: '3px 10px',
+                          borderRadius: '999px',
+                          background: '#ecfdf5',
+                          color: '#065f46',
+                          border: '1px solid #a7f3d0',
+                        }}
+                      >
+                        ✓ Sẵn sàng Webhook & API
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '12.5px', color: '#666', lineHeight: 1.6, marginBottom: '14px' }}>
+                      Tích hợp tính cước tự động, sinh mã vận đơn, bản đồ lộ trình Leaflet và webhook cập nhật trạng thái đơn bưu phẩm máy tính xách tay.
+                    </p>
+                    <div style={{ background: '#fafaf8', padding: '12px', borderRadius: '8px', fontSize: '11.5px', color: '#555', fontFamily: 'monospace' }}>
+                      Webhook endpoint:
+                      <br />POST /api/v1/shipping/webhooks/ghn
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -353,6 +630,69 @@ export function RoleDashboard({ user, initialPath, onLogout, onNavigateHome }: R
               >
                 + Lập vận đơn GHN mới
               </button>
+            </div>
+
+            {/* INCOMING APPOINTMENTS WITH DELIVERY METHOD */}
+            <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px' }}>
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', background: '#fafaf8', fontWeight: 600, fontSize: '13px' }}>
+                Lịch hẹn đặt máy & Tiếp nhận (Hình thức nhận máy)
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--line)', color: '#666' }}>
+                    <th style={{ padding: '12px 16px' }}>Mã hẹn</th>
+                    <th style={{ padding: '12px 16px' }}>Khách hàng & SĐT</th>
+                    <th style={{ padding: '12px 16px' }}>Thiết bị</th>
+                    <th style={{ padding: '12px 16px' }}>Hình thức gửi máy</th>
+                    <th style={{ padding: '12px 16px' }}>Địa chỉ nhận / giao</th>
+                    <th style={{ padding: '12px 16px' }}>Kỹ thuật viên</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'right' }}>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receptionAppointments.map((apt) => (
+                    <tr key={apt.appointmentId} style={{ borderBottom: '1px solid #f0f0ee' }}>
+                      <td style={{ padding: '12px 16px', fontFamily: 'monospace', fontWeight: 700 }}>#{apt.appointmentId}</td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <div>{apt.customerName}</div>
+                        <span style={{ fontSize: '11px', color: '#777' }}>{apt.customerPhone}</span>
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>{apt.modelName}</td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <span
+                          style={{
+                            background: apt.deliveryMethod === 'SHIP_IN' ? '#eff6ff' : apt.deliveryMethod === 'PICKUP' ? '#fef3c7' : '#f4f4f2',
+                            color: apt.deliveryMethod === 'SHIP_IN' ? '#1d4ed8' : apt.deliveryMethod === 'PICKUP' ? '#92400e' : '#333',
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {apt.deliveryMethod === 'SHIP_IN' ? 'Gửi ship bưu điện' : apt.deliveryMethod === 'PICKUP' ? 'TechCare nhận tận nơi' : 'Tại quầy'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 16px', maxWidth: '240px', fontSize: '12px', color: '#555' }}>
+                        {apt.pickupAddress || 'Tại trung tâm TechCare'}
+                      </td>
+                      <td style={{ padding: '12px 16px', fontSize: '12px' }}>{apt.preferredTechnician}</td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                        {(apt.deliveryMethod === 'SHIP_IN' || apt.deliveryMethod === 'PICKUP') ? (
+                          <button
+                            type="button"
+                            onClick={() => alert(`Khởi tạo vận đơn GHN Express cho lịch hẹn #${apt.appointmentId}:\n- Khách hàng: ${apt.customerName} (${apt.customerPhone})\n- Địa chỉ lấy/giao máy: ${apt.pickupAddress}\n- Thiết bị: ${apt.modelName}\n\nĐã tự động nạp địa chỉ khách vào hệ thống GHN!`)}
+                            style={{ background: '#111', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            + Tạo vận đơn
+                          </button>
+                        ) : (
+                          <span style={{ color: '#888', fontSize: '11px' }}>Khách đến quầy</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
 
             <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '12px', overflow: 'hidden' }}>

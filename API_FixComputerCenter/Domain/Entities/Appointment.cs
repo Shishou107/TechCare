@@ -27,9 +27,13 @@ public partial class Appointment
 
     public long? PreferredTechnicianUserId { get; set; }
 
+    public string DeliveryMethod { get; set; } = "AT_STORE";
+
+    public string? PickupAddress { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
-    public byte[] RowVersion { get; set; } = null!;
+    public byte[] RowVersion { get; set; } = new byte[8];
 
     public virtual Branch Branch { get; set; } = null!;
 

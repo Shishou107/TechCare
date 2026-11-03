@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using API_FixComputerCenter.Application.Common.DTOs;
 using API_FixComputerCenter.Application.Common.Exceptions;
 using API_FixComputerCenter.Application.Common.Interfaces;
@@ -21,7 +26,9 @@ public record AppointmentDto(
     string? CustomerDescription,
     string Status,
     DateTime CreatedAtUtc,
-    long? PreferredTechnicianUserId = null
+    long? PreferredTechnicianUserId = null,
+    string DeliveryMethod = "AT_STORE",
+    string? PickupAddress = null
 );
 
 public class BookAppointmentRequest
@@ -40,6 +47,8 @@ public class BookAppointmentRequest
     public string IssueDescription { get; set; } = string.Empty;
     public DateTime? ScheduledAtUtc { get; set; }
     public long? PreferredTechnicianUserId { get; set; }
+    public string DeliveryMethod { get; set; } = "AT_STORE";
+    public string? PickupAddress { get; set; }
 }
 
 public class BookAppointmentValidator : AbstractValidator<BookAppointmentRequest>
@@ -47,8 +56,18 @@ public class BookAppointmentValidator : AbstractValidator<BookAppointmentRequest
     public BookAppointmentValidator()
     {
         RuleFor(x => x.CustomerName).NotEmpty().MaximumLength(150);
-        RuleFor(x => x.CustomerPhone).NotEmpty().Matches(@"^0\d{9,10}$").WithMessage("Số điện thoại không đúng định dạng (0xxxxxxxxx)");
+        RuleFor(x => x.CustomerPhone)
+            .NotEmpty()
+            .Matches(@"^0(3|5|7|8|9)\d{8}$")
+            .WithMessage("Số điện thoại không đúng định dạng di động Việt Nam (10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09)");
         RuleFor(x => x.IssueDescription).NotEmpty().MinimumLength(5).MaximumLength(1500);
+
+        When(x => x.DeliveryMethod == "SHIP_IN" || x.DeliveryMethod == "PICKUP", () =>
+        {
+            RuleFor(x => x.PickupAddress)
+                .NotEmpty().WithMessage("Vui lòng nhập địa chỉ khi chọn gửi ship hoặc nhận máy tận nơi.")
+                .MinimumLength(10).WithMessage("Địa chỉ phải có tối thiểu 10 ký tự.");
+        });
     }
 }
 
@@ -97,7 +116,10 @@ public class AppointmentService : IAppointmentService
                 a.Subject,
                 a.CustomerDescription,
                 a.Status,
-                a.CreatedAtUtc
+                a.CreatedAtUtc,
+                a.PreferredTechnicianUserId,
+                a.DeliveryMethod,
+                a.PickupAddress
             ))
             .ToListAsync(ct);
 
@@ -108,14 +130,15 @@ public class AppointmentService : IAppointmentService
     {
         using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        var customer = await _db.Customers.FirstOrDefaultAsync(c => c.Phone == req.CustomerPhone.Trim(), ct);
+        var cleanPhone = req.CustomerPhone.Trim();
+        var customer = await _db.Customers.FirstOrDefaultAsync(c => c.Phone == cleanPhone, ct);
         if (customer == null)
         {
             customer = new Customer
             {
                 CustomerCode = "KH-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(),
                 FullName = req.CustomerName.Trim(),
-                Phone = req.CustomerPhone.Trim(),
+                Phone = cleanPhone,
                 Email = req.CustomerEmail?.Trim(),
                 CreatedAtUtc = DateTime.UtcNow,
                 IsActive = true
@@ -177,6 +200,8 @@ public class AppointmentService : IAppointmentService
             Status = "BOOKED",
             CreatedByUserId = _currentUser.UserId,
             PreferredTechnicianUserId = req.PreferredTechnicianUserId,
+            DeliveryMethod = string.IsNullOrWhiteSpace(req.DeliveryMethod) ? "AT_STORE" : req.DeliveryMethod.Trim(),
+            PickupAddress = req.PickupAddress?.Trim(),
             CreatedAtUtc = DateTime.UtcNow
         };
 
@@ -199,7 +224,10 @@ public class AppointmentService : IAppointmentService
             appointment.Subject,
             appointment.CustomerDescription,
             appointment.Status,
-            appointment.CreatedAtUtc
+            appointment.CreatedAtUtc,
+            appointment.PreferredTechnicianUserId,
+            appointment.DeliveryMethod,
+            appointment.PickupAddress
         );
     }
 
@@ -228,7 +256,6 @@ public class AppointmentService : IAppointmentService
         var cleanPhone = phone.Trim();
         if (string.IsNullOrWhiteSpace(cleanCode) || string.IsNullOrWhiteSpace(cleanPhone)) return null;
 
-
         var appt = await _db.Appointments.AsNoTracking()
             .Include(a => a.Customer)
             .Include(a => a.Device)
@@ -251,7 +278,10 @@ public class AppointmentService : IAppointmentService
             appt.Subject,
             appt.CustomerDescription,
             appt.Status,
-            appt.CreatedAtUtc
+            appt.CreatedAtUtc,
+            appt.PreferredTechnicianUserId,
+            appt.DeliveryMethod,
+            appt.PickupAddress
         );
     }
 }

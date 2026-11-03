@@ -23,7 +23,7 @@ export interface PublicTechnician {
   experienceYears: number
   isAcceptingRequests: boolean
   displayOrder: number
-  ratingAverage: number
+  ratingAverage: number | null
   ratingCount: number
   completedTicketsCount: number
 }
@@ -232,8 +232,10 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
     if (!formData.issueDescription.trim()) {
       errs.issueDescription = 'Vui lòng mô tả hiện tượng máy bị lỗi'
     }
-    if (formData.serviceType === 'COURIER' && !formData.streetAddress.trim()) {
-      errs.streetAddress = 'Vui lòng nhập số nhà, tên đường để bưu tá đến lấy hàng'
+    if ((formData.serviceType === 'COURIER' || formData.serviceType === 'PICKUP') && !formData.streetAddress.trim()) {
+      errs.streetAddress = 'Vui lòng nhập số nhà, tên đường để giao nhận thiết bị'
+    } else if ((formData.serviceType === 'COURIER' || formData.serviceType === 'PICKUP') && formData.streetAddress.trim().length < 5) {
+      errs.streetAddress = 'Địa chỉ quá ngắn (vui lòng nhập số nhà, tên đường chi tiết)'
     }
 
     setErrors(errs)
@@ -252,8 +254,12 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
       if (formData.serviceType === 'COURIER') {
         courierNotes = `\n[GỬI CHUYỂN PHÁT ${formData.courierCarrier}] Lấy hàng tại: ${formData.streetAddress.trim()}, ${formData.ward}, ${formData.district}, ${formData.province}. Bảo hiểm laptop: ${formData.insuredLaptop ? 'CÓ' : 'KHÔNG'}`
       } else if (formData.serviceType === 'PICKUP') {
-        courierNotes = `\n[GIAO NHẬN TẬN NƠI] Nội thành TP.HCM / Hà Nội`
+        courierNotes = `\n[GIAO NHẬN TẬN NƠI] Lấy máy tại: ${formData.streetAddress.trim()}, ${formData.ward}, ${formData.district}, ${formData.province}`
       }
+
+      const fullPickupAddress = (formData.serviceType === 'COURIER' || formData.serviceType === 'PICKUP')
+        ? `${formData.streetAddress.trim()}, ${formData.ward}, ${formData.district}, ${formData.province}`
+        : null
 
       const servicePrefix =
         formData.serviceType === 'COURIER'
@@ -276,6 +282,8 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
         ramModulesJson: formData.ramModules && formData.ramModules.length > 0 ? JSON.stringify(formData.ramModules) : null,
         issueDescription: `[${servicePrefix}] ${formData.issueDescription.trim()}${courierNotes}`,
         preferredTechnicianUserId: selectedTechId,
+        deliveryMethod: formData.serviceType === 'COURIER' ? 'SHIP_IN' : formData.serviceType,
+        pickupAddress: fullPickupAddress,
       }
 
       const res = await fetch(`${API_BASE_URL}/api/v1/appointments/book`, {
@@ -475,11 +483,15 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
                   </div>
                 </div>
 
-                {/* Additional Shipping & Courier Fields when COURIER selected */}
-                {formData.serviceType === 'COURIER' && (
+                {/* Additional Shipping & Address Fields when COURIER or PICKUP selected */}
+                {(formData.serviceType === 'COURIER' || formData.serviceType === 'PICKUP') && (
                   <div className="courier-shipping-drawer">
                     <div className="courier-drawer-header">
-                      <span className="courier-drawer-title">Địa chỉ lấy máy & Đơn vị vận chuyển đối tác</span>
+                      <span className="courier-drawer-title">
+                        {formData.serviceType === 'PICKUP'
+                          ? 'Địa chỉ kỹ thuật viên TechCare đến nhận máy tận nơi'
+                          : 'Địa chỉ lấy máy & Đơn vị vận chuyển đối tác'}
+                      </span>
                     </div>
 
                     <div className="form-row-2">
@@ -543,70 +555,74 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
                       </div>
                     </div>
 
-                    {/* Carrier comparison list */}
-                    <div style={{ marginTop: '10px', marginBottom: '12px' }}>
-                      <label style={{ marginBottom: '8px' }}>Chọn đơn vị chuyển phát đối tác:</label>
-                      <div className="carrier-list-box">
-                        <label className={`carrier-item ${formData.courierCarrier === 'GHN' ? 'active' : ''}`}>
-                          <input
-                            type="radio"
-                            name="courierCarrier"
-                            checked={formData.courierCarrier === 'GHN'}
-                            onChange={() => setFormData({ ...formData, courierCarrier: 'GHN' })}
-                          />
-                          <div className="carrier-info">
-                            <strong>Giao Hàng Nhanh (GHN Express)</strong>
-                            <span>
-                              {shippingPreview.loading
-                                ? 'Đang tính cước theo địa chỉ...'
-                                : `Dự kiến: ${shippingPreview.leadTime} · Phí cước tự động: ${shippingPreview.fee.toLocaleString('vi-VN')}đ`}
-                            </span>
-                          </div>
-                          <span className="carrier-tag-mono">Đề xuất</span>
-                        </label>
+                    {/* Carrier comparison list (only for COURIER) */}
+                    {formData.serviceType === 'COURIER' && (
+                      <>
+                        <div style={{ marginTop: '10px', marginBottom: '12px' }}>
+                          <label style={{ marginBottom: '8px' }}>Chọn đơn vị chuyển phát đối tác:</label>
+                          <div className="carrier-list-box">
+                            <label className={`carrier-item ${formData.courierCarrier === 'GHN' ? 'active' : ''}`}>
+                              <input
+                                type="radio"
+                                name="courierCarrier"
+                                checked={formData.courierCarrier === 'GHN'}
+                                onChange={() => setFormData({ ...formData, courierCarrier: 'GHN' })}
+                              />
+                              <div className="carrier-info">
+                                <strong>Giao Hàng Nhanh (GHN Express)</strong>
+                                <span>
+                                  {shippingPreview.loading
+                                    ? 'Đang tính cước theo địa chỉ...'
+                                    : `Dự kiến: ${shippingPreview.leadTime} · Phí cước tự động: ${shippingPreview.fee.toLocaleString('vi-VN')}đ`}
+                                </span>
+                              </div>
+                              <span className="carrier-tag-mono">Đề xuất</span>
+                            </label>
 
-                        <label className={`carrier-item ${formData.courierCarrier === 'GHTK' ? 'active' : ''}`}>
-                          <input
-                            type="radio"
-                            name="courierCarrier"
-                            checked={formData.courierCarrier === 'GHTK'}
-                            onChange={() => setFormData({ ...formData, courierCarrier: 'GHTK' })}
-                          />
-                          <div className="carrier-info">
-                            <strong>Giao Hàng Tiết Kiệm (GHTK)</strong>
-                            <span>Dự kiến: 3–4 ngày · Phí cước ước tính: 30.000đ</span>
-                          </div>
-                        </label>
+                            <label className={`carrier-item ${formData.courierCarrier === 'GHTK' ? 'active' : ''}`}>
+                              <input
+                                type="radio"
+                                name="courierCarrier"
+                                checked={formData.courierCarrier === 'GHTK'}
+                                onChange={() => setFormData({ ...formData, courierCarrier: 'GHTK' })}
+                              />
+                              <div className="carrier-info">
+                                <strong>Giao Hàng Tiết Kiệm (GHTK)</strong>
+                                <span>Dự kiến: 3–4 ngày · Phí cước ước tính: 30.000đ</span>
+                              </div>
+                            </label>
 
-                        <label className={`carrier-item ${formData.courierCarrier === 'VIETTEL' ? 'active' : ''}`}>
-                          <input
-                            type="radio"
-                            name="courierCarrier"
-                            checked={formData.courierCarrier === 'VIETTEL'}
-                            onChange={() => setFormData({ ...formData, courierCarrier: 'VIETTEL' })}
-                          />
-                          <div className="carrier-info">
-                            <strong>Viettel Post</strong>
-                            <span>Dự kiến: 2–3 ngày · Phí cước ước tính: 38.000đ</span>
+                            <label className={`carrier-item ${formData.courierCarrier === 'VIETTEL' ? 'active' : ''}`}>
+                              <input
+                                type="radio"
+                                name="courierCarrier"
+                                checked={formData.courierCarrier === 'VIETTEL'}
+                                onChange={() => setFormData({ ...formData, courierCarrier: 'VIETTEL' })}
+                              />
+                              <div className="carrier-info">
+                                <strong>Viettel Post</strong>
+                                <span>Dự kiến: 2–3 ngày · Phí cước ước tính: 38.000đ</span>
+                              </div>
+                            </label>
                           </div>
-                        </label>
-                      </div>
-                    </div>
+                        </div>
 
-                    {/* Insurance & Anti-shock Packaging reminder */}
-                    <div className="courier-notice-box">
-                      <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', fontWeight: 600, color: 'var(--ink)' }}>
-                        <input
-                          type="checkbox"
-                          checked={formData.insuredLaptop}
-                          onChange={(e) => setFormData({ ...formData, insuredLaptop: e.target.checked })}
-                        />
-                        <span>Khai giá & Bảo hiểm toàn phần kiện hàng Laptop (TechCare hỗ trợ thủ tục với hãng vận chuyển)</span>
-                      </label>
-                      <p style={{ fontSize: '11.5px', color: '#666', marginTop: '6px', lineHeight: 1.5 }}>
-                        <strong>Lưu ý đóng gói an toàn:</strong> Vui lòng bọc thiết bị tối thiểu 3–4 lớp xốp khí chống sốc và chèn cố định trong thùng carton trước khi bàn giao cho bưu tá.
-                      </p>
-                    </div>
+                        {/* Insurance & Anti-shock Packaging reminder */}
+                        <div className="courier-notice-box">
+                          <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', fontWeight: 600, color: 'var(--ink)' }}>
+                            <input
+                              type="checkbox"
+                              checked={formData.insuredLaptop}
+                              onChange={(e) => setFormData({ ...formData, insuredLaptop: e.target.checked })}
+                            />
+                            <span>Khai giá & Bảo hiểm toàn phần kiện hàng Laptop (TechCare hỗ trợ thủ tục với hãng vận chuyển)</span>
+                          </label>
+                          <p style={{ fontSize: '11.5px', color: '#666', marginTop: '6px', lineHeight: 1.5 }}>
+                            <strong>Lưu ý đóng gói an toàn:</strong> Vui lòng bọc thiết bị tối thiểu 3–4 lớp xốp khí chống sốc và chèn cố định trong thùng carton trước khi bàn giao cho bưu tá.
+                          </p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -664,7 +680,7 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
                   </div>
                 )}
 
-                {/* PREFERRED TECHNICIAN SELECTION (Phase 5B) */}
+                {/* PREFERRED TECHNICIAN SELECTION (Phase 5B / Phase 6B) */}
                 <div style={{ marginTop: '20px', marginBottom: '18px' }}>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>
                     Kỹ thuật viên yêu cầu (Tùy chọn)
@@ -673,67 +689,77 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
                     Chọn chuyên gia sửa chữa máy của bạn. Đây là nguyện vọng — nếu kỹ thuật viên bận, lễ tân sẽ sắp xếp nhân sự có chuyên môn tương đương.
                   </p>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '10px' }}>
-                    {/* Default Option: Để TechCare sắp xếp */}
-                    <div
-                      onClick={() => setSelectedTechId(null)}
-                      style={{
-                        border: selectedTechId === null ? '2px solid var(--ink)' : '1px solid var(--line)',
-                        borderRadius: '8px',
-                        padding: '12px 14px',
-                        cursor: 'pointer',
-                        background: selectedTechId === null ? '#fafafa' : '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px'
-                      }}
-                    >
-                      <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>
-                        ⚙️
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '13px' }}>Để TechCare sắp xếp</div>
-                        <div style={{ fontSize: '11px', color: 'var(--sub)' }}>Ưu tiên nhận máy nhanh nhất</div>
-                      </div>
+                  {technicians.length === 0 ? (
+                    <div style={{ padding: '14px 16px', background: 'var(--bg)', borderRadius: '8px', fontSize: '12.5px', color: 'var(--sub)', border: '1px solid var(--line)' }}>
+                      ⚙️ TechCare sẽ chủ động sắp xếp kỹ thuật viên phù hợp nhất với dòng máy của bạn.
                     </div>
-
-                    {/* Available Technicians */}
-                    {technicians.map((tech) => (
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '10px' }}>
+                      {/* Default Option: Để TechCare sắp xếp */}
                       <div
-                        key={tech.userId}
-                        onClick={() => setSelectedTechId(tech.userId)}
+                        onClick={() => setSelectedTechId(null)}
                         style={{
-                          border: selectedTechId === tech.userId ? '2px solid var(--ink)' : '1px solid var(--line)',
+                          border: selectedTechId === null ? '2px solid var(--ink)' : '1px solid var(--line)',
                           borderRadius: '8px',
                           padding: '12px 14px',
                           cursor: 'pointer',
-                          background: selectedTechId === tech.userId ? '#fafafa' : '#fff',
+                          background: selectedTechId === null ? '#fafafa' : '#fff',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '10px',
-                          opacity: tech.isAcceptingRequests ? 1 : 0.6
+                          gap: '10px'
                         }}
                       >
-                        <img
-                          src={tech.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
-                          alt={tech.displayName}
-                          style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover' }}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tech.displayName}</span>
-                            <span style={{ fontSize: '11px', color: '#eab308' }}>★ {tech.ratingAverage}</span>
-                          </div>
-                          <div style={{ fontSize: '11.5px', color: 'var(--sub)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {tech.specialty}
-                          </div>
-                          <div style={{ fontSize: '10.5px', color: '#666', marginTop: '2px' }}>
-                            {tech.experienceYears} năm KN · {tech.completedTicketsCount} ca xong
-                          </div>
+                        <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>
+                          ⚙️
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '13px' }}>Để TechCare sắp xếp</div>
+                          <div style={{ fontSize: '11px', color: 'var(--sub)' }}>Ưu tiên nhận máy nhanh nhất</div>
                         </div>
                       </div>
-                    ))}
-                  </div>
+
+                      {/* Available Technicians */}
+                      {technicians.map((tech) => (
+                        <div
+                          key={tech.userId}
+                          onClick={() => setSelectedTechId(tech.userId)}
+                          style={{
+                            border: selectedTechId === tech.userId ? '2px solid var(--ink)' : '1px solid var(--line)',
+                            borderRadius: '8px',
+                            padding: '12px 14px',
+                            cursor: 'pointer',
+                            background: selectedTechId === tech.userId ? '#fafafa' : '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            opacity: tech.isAcceptingRequests ? 1 : 0.6
+                          }}
+                        >
+                          <img
+                            src={tech.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
+                            alt={tech.displayName}
+                            style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover' }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tech.displayName}</span>
+                              {tech.ratingAverage !== null && tech.ratingCount > 0 ? (
+                                <span style={{ fontSize: '11px', color: '#eab308' }}>★ {Number(tech.ratingAverage).toFixed(1)}</span>
+                              ) : (
+                                <span style={{ fontSize: '10.5px', color: 'var(--sub)' }}>Chưa có đánh giá</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '11.5px', color: 'var(--sub)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {tech.specialty}
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: '#666', marginTop: '2px' }}>
+                              {tech.experienceYears} năm KN · {tech.completedTicketsCount} ca xong
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* SUBMIT BUTTON */}

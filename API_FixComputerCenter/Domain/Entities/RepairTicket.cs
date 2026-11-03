@@ -53,7 +53,7 @@ public partial class RepairTicket
 
     public DateTime? UpdatedAtUtc { get; set; }
 
-    public byte[] RowVersion { get; set; } = null!;
+    public byte[] RowVersion { get; set; } = new byte[8];
 
     public virtual Appointment? Appointment { get; set; }
 
