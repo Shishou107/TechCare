@@ -181,4 +181,85 @@ public class ShippingTests
         Assert.Equal(1, provider.CallCount); // Provider was NOT called a second time!
         Assert.Equal(originalWaybill, res2.WaybillCode);
     }
+
+    // TEST 3 (R2): Branch coordinates are null when not configured (no hardcoded fallback)
+    [Fact]
+    public async Task CreateOrder_BranchCoordinates_NullWhenNotConfigured()
+    {
+        using var db = CreateDbContext("Test_R2_Coords_" + Guid.NewGuid());
+        var provider = new FakeShippingProvider();
+        // Config with NO branch coordinates
+        var emptyConfig = new ConfigurationBuilder().Build();
+        var service = new ShippingService(db, provider, NullLogger<ShippingService>.Instance, emptyConfig, new FakeHttpClientFactory());
+
+        var request = new CreateShipmentRequest
+        {
+            AppointmentId = 777,
+            Direction = "INBOUND",
+            SenderName = "Khách Hàng",
+            SenderPhone = "0987654321",
+            SenderAddress = "Không có trong từ điển",
+            SenderProvinceCode = "99",
+            SenderDistrictCode = "999",
+            SenderWardCode = "999",
+            ReceiverName = "TechCare Branch",
+            ReceiverPhone = "19001234",
+            ReceiverAddress = "Chi nhánh TechCare",
+            ReceiverProvinceCode = "01",
+            ReceiverDistrictCode = "001",
+            ReceiverWardCode = "001",
+            WeightGram = 1000
+        };
+
+        var res = await service.CreateOrderAsync(request, createdByUserId: 1);
+        Assert.True(res.Success);
+
+        var saved = await db.Shipments.FirstOrDefaultAsync(s => s.WaybillCode == res.WaybillCode);
+        Assert.NotNull(saved);
+        // For INBOUND: receiver is branch. When not configured, ReceiverLatitude and ReceiverLongitude must be null (no hardcoded Hoan Kiem coords)
+        Assert.Null(saved.ReceiverLatitude);
+        Assert.Null(saved.ReceiverLongitude);
+    }
+
+    [Fact]
+    public async Task CreateOrder_BranchCoordinates_SavedWhenConfigured()
+    {
+        using var db = CreateDbContext("Test_R2_Coords_Configured_" + Guid.NewGuid());
+        var provider = new FakeShippingProvider();
+        var configWithCoords = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Shipping:BranchLatitude"] = "10.7769",
+                ["Shipping:BranchLongitude"] = "106.7009"
+            })
+            .Build();
+        var service = new ShippingService(db, provider, NullLogger<ShippingService>.Instance, configWithCoords, new FakeHttpClientFactory());
+
+        var request = new CreateShipmentRequest
+        {
+            AppointmentId = 888,
+            Direction = "INBOUND",
+            SenderName = "Khách Hàng HCM",
+            SenderPhone = "0987654321",
+            SenderAddress = "Quận 1, TP. Hồ Chí Minh",
+            SenderProvinceCode = "79",
+            SenderDistrictCode = "760",
+            SenderWardCode = "26734",
+            ReceiverName = "TechCare HCM",
+            ReceiverPhone = "19001234",
+            ReceiverAddress = "TechCare Sài Gòn",
+            ReceiverProvinceCode = "79",
+            ReceiverDistrictCode = "760",
+            ReceiverWardCode = "26734",
+            WeightGram = 1000
+        };
+
+        var res = await service.CreateOrderAsync(request, createdByUserId: 1);
+        Assert.True(res.Success);
+
+        var saved = await db.Shipments.FirstOrDefaultAsync(s => s.WaybillCode == res.WaybillCode);
+        Assert.NotNull(saved);
+        Assert.Equal(10.7769m, saved.ReceiverLatitude);
+        Assert.Equal(106.7009m, saved.ReceiverLongitude);
+    }
 }

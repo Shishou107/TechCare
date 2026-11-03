@@ -9,6 +9,7 @@ using API_FixComputerCenter.Application.Common.Interfaces;
 using API_FixComputerCenter.Application.Features.Knowledge;
 using API_FixComputerCenter.Domain.Entities.Ai;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace API_FixComputerCenter.Application.Features.AiChat;
 
@@ -64,12 +65,21 @@ public class AiChatService : IAiChatService
     private readonly ITechCareDbContext _db;
     private readonly IKnowledgeService _knowledge;
     private readonly IAiChatCompletionService _aiCompletion;
+    private readonly IEmbeddingService _embedding;
+    private readonly IConfiguration _config;
 
-    public AiChatService(ITechCareDbContext db, IKnowledgeService knowledge, IAiChatCompletionService aiCompletion)
+    public AiChatService(
+        ITechCareDbContext db,
+        IKnowledgeService knowledge,
+        IAiChatCompletionService aiCompletion,
+        IEmbeddingService embedding,
+        IConfiguration config)
     {
         _db = db;
         _knowledge = knowledge;
         _aiCompletion = aiCompletion;
+        _embedding = embedding;
+        _config = config;
     }
 
     public async Task<ChatResponseDto> HandleCustomerMessageAsync(CustomerChatMessageRequest req, CancellationToken ct = default)
@@ -143,8 +153,15 @@ public class AiChatService : IAiChatService
             return new ChatResponseDto(session.SessionId.ToString(), "HUMAN", handoffMsg, new List<ChatCitationDto>());
         }
 
-        // 5. Search knowledge base chunks (topK = 5, threshold: 0.30)
-        var relevantChunks = await _knowledge.SearchChunksAsync(req.Message, topK: 5, threshold: 0.30, ct);
+        // 5. Search knowledge base chunks with dynamic threshold (R1)
+        // If configured, use Ai:MinSimilarityScore. Otherwise: real model 0.72, fallback hash 0.30
+        var configuredThreshold = _config.GetValue<double?>("Ai:MinSimilarityScore");
+        bool isFallbackModel = string.Equals(_embedding.CurrentModelName, "local-hash-v2", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(_embedding.CurrentModelName, "local-hash-v1", StringComparison.OrdinalIgnoreCase);
+        double threshold = configuredThreshold ?? (isFallbackModel ? 0.30 : 0.72);
+        int topK = _config.GetValue<int?>("Ai:TopK") ?? 5;
+
+        var relevantChunks = await _knowledge.SearchChunksAsync(req.Message, topK: topK, threshold: threshold, ct);
 
         // If no confident chunks found, transition to HUMAN
         if (relevantChunks.Count == 0)

@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using API_FixComputerCenter.Application.Common.Exceptions;
 using API_FixComputerCenter.Application.Common.Interfaces;
 using API_FixComputerCenter.Domain.Entities;
@@ -16,7 +17,14 @@ public record LoginRequest(string UserName, string Password);
 public record RefreshTokenRequest(string? RefreshToken);
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 public record UserSessionDto(Guid SessionId, string? DeviceLabel, string? CreatedByIp, DateTime CreatedAtUtc, DateTime LastUsedAtUtc, bool IsCurrent);
-public record AuthResponse(string AccessToken, string? RefreshToken, string TokenType, int ExpiresInSeconds, UserProfileDto User);
+public record AuthResponse(
+    string AccessToken,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? RefreshToken,
+    string TokenType,
+    int ExpiresInSeconds,
+    UserProfileDto User
+);
 public record UserProfileDto(long UserId, string UserName, string? Email, int? BranchId, List<string> Roles, List<string> Permissions);
 
 public interface IAuthService

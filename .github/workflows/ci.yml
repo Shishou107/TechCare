@@ -1,0 +1,48 @@
+name: TechCare CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-test:
+    name: Backend Build & Test (.NET 10)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore TechCare/API_FixComputerCenter.Tests/API_FixComputerCenter.Tests.csproj
+
+      - name: Build and Run Tests
+        env:
+          TECHCARE_JWT_SECRET: "TechCare_CI_Test_Environment_Secret_Key_At_Least_32_Chars_Long!"
+        run: dotnet test TechCare/API_FixComputerCenter.Tests/API_FixComputerCenter.Tests.csproj --verbosity normal
+
+  frontend-build:
+    name: Frontend Build (Vite & TypeScript)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: TechCare/TechCare.Web
+        run: npm ci
+
+      - name: Typecheck and Build
+        working-directory: TechCare/TechCare.Web
+        run: npm run build

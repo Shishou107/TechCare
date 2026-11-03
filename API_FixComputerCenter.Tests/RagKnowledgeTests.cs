@@ -124,7 +124,8 @@ public class RagKnowledgeTests
         using var db = CreateDbContext("Test_Handoff_" + Guid.NewGuid());
         var embeddingSvc = CreateEmbeddingService();
         var knowledgeSvc = new KnowledgeService(db, embeddingSvc);
-        var aiChatSvc = new AiChatService(db, knowledgeSvc, new FakeChatCompletionService());
+        var config = new ConfigurationBuilder().Build();
+        var aiChatSvc = new AiChatService(db, knowledgeSvc, new FakeChatCompletionService(), embeddingSvc, config);
 
         // 1. Seed document about computer repairs
         var doc = new KnowledgeDocument
@@ -231,6 +232,57 @@ public class RagKnowledgeTests
         // None of the returned chunks should come from the disabled document
         Assert.DoesNotContain(results, r => r.DocumentId == disabledDoc.DocumentId);
         Assert.All(results, r => Assert.NotEqual(disabledDoc.DocumentId, r.DocumentId));
+    }
+
+    // TEST 6 (R1): Dynamic threshold reads config or defaults by model mode
+    [Fact]
+    public async Task CustomerChat_DynamicThreshold_UsesModelDefaultOrConfigOverride()
+    {
+        using var db = CreateDbContext("Test_R1_Threshold_" + Guid.NewGuid());
+        var embeddingSvc = CreateEmbeddingService(); // fallback model "local-hash-v2"
+        var knowledgeSvc = new KnowledgeService(db, embeddingSvc);
+
+        // Seed a document
+        var doc = new KnowledgeDocument
+        {
+            Title = "Bảng giá vệ sinh máy",
+            Category = "GIÁ",
+            RawContent = "Vệ sinh laptop tra keo MX4 giá 150.000 đồng lấy ngay trong 45 phút.",
+            Status = "ACTIVE",
+            CreatedAtUtc = DateTime.UtcNow
+        };
+        db.KnowledgeDocuments.Add(doc);
+        await db.SaveChangesAsync();
+
+        var vec = await embeddingSvc.GenerateEmbeddingAsync(doc.RawContent);
+        db.KnowledgeChunks.Add(new KnowledgeChunk
+        {
+            DocumentId = doc.DocumentId,
+            ChunkIndex = 0,
+            Content = doc.RawContent,
+            Embedding = embeddingSvc.VectorToBytes(vec),
+            EmbeddingModel = embeddingSvc.CurrentModelName,
+            EmbeddingDim = vec.Length
+        });
+        await db.SaveChangesAsync();
+
+        // 1. With fallback model and NO config, threshold is 0.30 -> query matches
+        var emptyConfig = new ConfigurationBuilder().Build();
+        var aiChatSvcDefault = new AiChatService(db, knowledgeSvc, new FakeChatCompletionService(), embeddingSvc, emptyConfig);
+        var res1 = await aiChatSvcDefault.HandleCustomerMessageAsync(new CustomerChatMessageRequest(null, "0912345678", "vệ sinh laptop giá bao nhiêu"));
+        Assert.NotEmpty(res1.Sources);
+
+        // 2. With configured threshold = 0.95 (very strict) -> same query cannot meet 0.95 threshold -> transitions to HUMAN
+        var strictConfig = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Ai:MinSimilarityScore"] = "0.95"
+            })
+            .Build();
+        var aiChatSvcStrict = new AiChatService(db, knowledgeSvc, new FakeChatCompletionService(), embeddingSvc, strictConfig);
+        var res2 = await aiChatSvcStrict.HandleCustomerMessageAsync(new CustomerChatMessageRequest(null, "0912345678", "vệ sinh laptop giá bao nhiêu"));
+        Assert.Equal("HUMAN", res2.Status);
+        Assert.Empty(res2.Sources);
     }
 }
 

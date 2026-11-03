@@ -119,9 +119,13 @@ public class ShippingService : IShippingService
             return providerResult;
         }
 
-        // Determine branch and customer coordinates
-        var branchLat = _config.GetValue<decimal?>("Shipping:BranchLatitude") ?? 21.0280m;
-        var branchLng = _config.GetValue<decimal?>("Shipping:BranchLongitude") ?? 105.8540m;
+        // Determine branch and customer coordinates (R2: no hardcoded fallback, log warning if missing)
+        var branchLat = _config.GetValue<decimal?>("Shipping:BranchLatitude");
+        var branchLng = _config.GetValue<decimal?>("Shipping:BranchLongitude");
+        if (!branchLat.HasValue || !branchLng.HasValue)
+        {
+            _logger.LogWarning("Shipping:BranchLatitude hoặc Shipping:BranchLongitude chưa được cấu hình. Tọa độ chi nhánh sẽ là NULL.");
+        }
         bool isInbound = string.Equals(request.Direction, "INBOUND", StringComparison.OrdinalIgnoreCase);
         string customerAddress = isInbound ? request.SenderAddress : request.ReceiverAddress;
         var customerCoords = await VnLocationCoordsLookup.GeocodeAddressAsync(_http, customerAddress, ct);
