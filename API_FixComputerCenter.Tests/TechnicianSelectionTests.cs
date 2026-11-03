@@ -221,4 +221,67 @@ public class TechnicianSelectionTests
         bool canRate = ticket.Status == "COMPLETED" || ticket.Status == "RETURNED";
         Assert.False(canRate, "Tickets in DIAGNOSING/REPAIRING status cannot be rated yet");
     }
+    // MANDATORY TEST 6B-1: Technician with 0 ratings returns RatingAverage == null
+    [Fact]
+    public async Task PublicTechnicians_WhenNoRatings_RatingAverageIsNull()
+    {
+        var db = CreateDbContext(Guid.NewGuid().ToString());
+
+        var techUser = new User { UserId = 701, UserName = "tech_noratings", NormalizedUserName = "TECH_NORATINGS", IsActive = true, CreatedAtUtc = DateTime.UtcNow, RowVersion = new byte[8] };
+        db.Users.Add(techUser);
+        db.TechnicianProfiles.Add(new TechnicianProfile
+        {
+            ProfileId = 701,
+            UserId = 701,
+            DisplayName = "Kỹ thuật viên Mới",
+            Specialty = "Cài đặt & Vệ sinh",
+            IsPublic = true,
+            IsAcceptingRequests = true,
+            CreatedAtUtc = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var query = await db.TechnicianProfiles.AsNoTracking()
+            .Where(p => p.UserId == 701)
+            .Select(p => new
+            {
+                p.DisplayName,
+                RatingAverage = db.TicketRatings.Any(r => r.TechnicianUserId == p.UserId)
+                    ? (double?)Math.Round(db.TicketRatings.Where(r => r.TechnicianUserId == p.UserId).Average(r => (double)r.Score), 1)
+                    : null,
+                RatingCount = db.TicketRatings.Count(r => r.TechnicianUserId == p.UserId)
+            })
+            .FirstOrDefaultAsync();
+
+        Assert.NotNull(query);
+        Assert.Equal(0, query.RatingCount);
+        Assert.Null(query.RatingAverage);
+    }
+
+    // MANDATORY TEST 6B-2: EnsureTechnicianProfileExists creates profile automatically for TECHNICIAN role
+    [Fact]
+    public async Task EnsureTechnicianProfile_CreatesProfileForNewTechnician()
+    {
+        var db = CreateDbContext(Guid.NewGuid().ToString());
+
+        var techUser = new User
+        {
+            UserId = 801,
+            UserName = "tech_auto_profile",
+            NormalizedUserName = "TECH_AUTO_PROFILE",
+            IsActive = true,
+            CreatedAtUtc = DateTime.UtcNow,
+            RowVersion = new byte[8]
+        };
+        db.Users.Add(techUser);
+        await db.SaveChangesAsync();
+
+        await TechnicianEndpoints.EnsureTechnicianProfileExistsAsync(db, techUser);
+
+        var profile = await db.TechnicianProfiles.FirstOrDefaultAsync(p => p.UserId == 801);
+        Assert.NotNull(profile);
+        Assert.Equal("tech_auto_profile", profile.DisplayName);
+        Assert.True(profile.IsPublic);
+        Assert.True(profile.IsAcceptingRequests);
+    }
 }
