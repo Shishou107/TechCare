@@ -1,0 +1,1319 @@
+:root {
+  --bg: #f7f7f5;
+  --ink: #111111;
+  --mute: #9a9a9a;
+  --sub: #7b7b7b;
+  --line: #e4e4e0;
+  --pcb: #2ee59d;
+  --card-bg: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  height: 100%;
+}
+
+body {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.page-wrapper {
+  position: relative;
+  overflow-x: hidden;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 1. STICKY TOP NAV WITH TAB NAVIGATION */
+.sticky-header {
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(247, 247, 245, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(228, 228, 224, 0.8);
+}
+
+.nav-container {
+  max-width: 1320px;
+  margin: auto;
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.brand-wrench {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.nav-tabs {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 2vw, 28px);
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  font-size: 13.5px;
+  color: #444;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 999px;
+  transition: all 0.2s ease;
+  position: relative;
+  font-weight: 400;
+}
+
+.tab-btn:hover {
+  color: #000;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.tab-btn.active {
+  color: #111;
+  font-weight: 600;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-book-pill {
+  position: relative;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.nav-book-pill:hover {
+  transform: translateY(-1px);
+}
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.icon-btn:hover {
+  background: #ffffff;
+  border-color: #111;
+  color: #111;
+}
+
+.icon-btn svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+
+.notification-badge-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pcb);
+}
+
+/* 2. HERO SECTION (Trang chủ) */
+section.hero {
+  position: relative;
+  height: calc(100vh - 65px);
+  min-height: 640px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+#dots {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.92;
+}
+
+.hero-copy {
+  position: absolute;
+  z-index: 3;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92vw, 760px);
+  text-align: center;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid #e4e4e0;
+  background: rgba(247, 247, 245, 0.85);
+  backdrop-filter: blur(6px);
+  color: #5a5a5a;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 20px;
+}
+
+.status-dot-pcb {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pcb);
+  box-shadow: 0 0 0 0 var(--pcb);
+  animation: pcbPulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+@keyframes pcbPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(46, 229, 157, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(46, 229, 157, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(46, 229, 157, 0);
+  }
+}
+
+.hero h1 {
+  font-size: clamp(38px, 4.4vw, 68px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+
+.hero h1 .reconnecting,
+.soft {
+  color: var(--mute);
+  display: block;
+}
+
+.hero h1 .creativity {
+  color: var(--ink);
+  display: block;
+}
+
+.hero-subline {
+  margin: 18px auto 0;
+  max-width: 480px;
+  color: var(--sub);
+  font-size: clamp(13px, 1.05vw, 15px);
+  line-height: 1.5;
+}
+
+.cta-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: clamp(30px, 3.2vw, 44px);
+}
+
+/* Universal Button Style */
+.button,
+button.button,
+.tracking-search-bar button,
+.submit-button {
+  background: #111111 !important;
+  color: #ffffff !important;
+  border: 1px solid #111111 !important;
+  padding: 12px 26px !important;
+  border-radius: 999px !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  text-decoration: none !important;
+  transition: all 0.25s ease !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12) !important;
+  outline: none !important;
+}
+
+.button:hover,
+button.button:hover,
+.tracking-search-bar button:hover,
+.submit-button:hover {
+  background: #000000 !important;
+  border-color: #000000 !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 8px 24px rgba(46, 229, 157, 0.35) !important;
+}
+
+.button:disabled,
+button.button:disabled,
+.tracking-search-bar button:disabled,
+.submit-button:disabled {
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+
+.pricing-book-btn {
+  background: transparent;
+  border: 1px solid #d4d4d0;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #111;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.pricing-book-btn:hover {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+  transform: translateY(-1px);
+}
+
+.primary-pill-cta {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 24px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.25s;
+  isolation: isolate;
+}
+
+.primary-pill-cta::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 10%;
+  right: 10%;
+  bottom: -6px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(90deg, #b8ff5a, #2ee59d, #22d3ee, #3b82f6, #2ee59d);
+  filter: blur(9px);
+  opacity: 0.85;
+  transition: all 0.3s;
+}
+
+.primary-pill-cta:hover {
+  transform: translateY(-1px);
+}
+
+.primary-pill-cta:hover::before {
+  opacity: 1;
+  filter: blur(12px);
+  bottom: -9px;
+}
+
+.secondary-cta {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #111111;
+  padding: 11px 16px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+
+.secondary-cta:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* 3. PERKS ROW */
+.perks-row {
+  position: absolute;
+  z-index: 3;
+  bottom: clamp(24px, 5vh, 48px);
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(16px, 3.2vw, 48px);
+  flex-wrap: wrap;
+  padding: 0 20px;
+  color: #7b7b7b;
+  font-size: clamp(12.5px, 0.95vw, 14px);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.perk-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.perk-item svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+
+/* 4. COMMON SECTION STYLES */
+.section-pad {
+  padding-left: max(7vw, 28px);
+  padding-right: max(7vw, 28px);
+}
+
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+  color: #777777;
+  text-transform: uppercase;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 40px;
+  margin-bottom: 48px;
+}
+
+.section-heading h2 {
+  font-size: clamp(36px, 4.5vw, 56px);
+  font-weight: 500;
+  letter-spacing: -0.05em;
+  line-height: 1.05;
+  margin-top: 14px;
+}
+
+.section-intro {
+  max-width: 330px;
+  color: var(--sub);
+  font-size: 13px;
+  line-height: 1.65;
+  margin-bottom: 4px;
+}
+
+/* 5. SYMPTOM TILES (Lỗi thường gặp - Monochrome Outline Line SVGs, NO COLOR EMOJIS) */
+.symptoms-section {
+  padding-top: 80px;
+  padding-bottom: 70px;
+  max-width: 1440px;
+  margin: auto;
+}
+
+.symptoms-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+}
+
+.symptom-card {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.symptom-card:hover {
+  border-color: #111111;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
+}
+
+.symptom-svg {
+  width: 32px;
+  height: 32px;
+  color: #111111;
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+}
+
+.symptom-svg svg {
+  width: 24px;
+  height: 24px;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.6 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+
+.symptom-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.symptom-sub {
+  font-size: 11px;
+  color: #777777;
+  line-height: 1.4;
+}
+
+/* 6. PHOTO 2 EXACT RECREATION: DỊCH VỤ ("Máy cần gì, Mạch chăm nấy") */
+.services-section {
+  padding-top: 100px;
+  padding-bottom: 100px;
+  max-width: 1440px;
+  margin: auto;
+}
+
+.service-grid-photo2 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.service-card-photo2 {
+  position: relative;
+  min-height: 275px;
+  padding: 24px 24px 28px 0;
+  border-right: 1px solid var(--line);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.service-card-photo2:not(:first-child) {
+  padding-left: 24px;
+}
+
+.service-card-photo2:last-child {
+  border-right: 0;
+}
+
+.service-card-photo2:hover {
+  background-color: rgba(255, 255, 255, 0.55);
+}
+
+.photo2-card-no {
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  color: #999999;
+}
+
+.photo2-line-icon {
+  height: 52px;
+  width: 52px;
+  margin-top: 26px;
+  display: grid;
+  place-items: center;
+  color: #444444;
+}
+
+.photo2-line-icon svg {
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.service-card-photo2 h3 {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  margin-top: 18px;
+}
+
+.service-card-photo2 p {
+  max-width: 250px;
+  color: var(--sub);
+  font-size: 12px;
+  line-height: 1.65;
+  margin-top: 9px;
+}
+
+.photo2-card-arrow {
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  color: #aaaaaa;
+  font-size: 13px;
+  transition: transform 0.2s;
+}
+
+.service-card-photo2:hover .photo2-card-arrow {
+  transform: translate(2px, -2px);
+  color: #111;
+}
+
+.photo2-service-footnote {
+  margin-top: 28px;
+  color: #777777;
+  font-size: 11.5px;
+}
+
+/* 7. PHOTO 3 EXACT RECREATION: CÁCH MẠCH LÀM VIỆC ("Không có gì mập mờ.") */
+.process-section-photo3 {
+  background: #f0efec;
+  padding-top: 100px;
+  padding-bottom: 100px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10vw;
+}
+
+.photo3-left-head h2 {
+  font-size: clamp(38px, 4.8vw, 61px);
+  font-weight: 500;
+  letter-spacing: -0.06em;
+  line-height: 1.03;
+  margin-top: 16px;
+}
+
+.photo3-steps-container {
+  border-top: 1px solid #d9d8d3;
+}
+
+.photo3-step-row {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 16px;
+  padding: 26px 0;
+  border-bottom: 1px solid #d9d8d3;
+}
+
+.photo3-step-number {
+  font-size: 10px;
+  color: #999999;
+  padding-top: 3px;
+}
+
+.photo3-step-content h3 {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.photo3-step-content p {
+  color: var(--sub);
+  font-size: 12.5px;
+  line-height: 1.65;
+  margin-top: 7px;
+  max-width: 420px;
+}
+
+/* 8. TAB VIEWS (Dịch vụ, Bảng giá, Đặt lịch, Tra cứu) */
+.tab-page-container {
+  max-width: 1320px;
+  margin: auto;
+  padding: 40px max(7vw, 28px) 80px;
+  flex: 1;
+}
+
+.tab-page-header {
+  margin-bottom: 36px;
+}
+
+.tab-page-header h1 {
+  font-size: clamp(32px, 3.8vw, 48px);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  margin-top: 8px;
+}
+
+.tab-page-header p {
+  color: var(--sub);
+  font-size: 13.5px;
+  line-height: 1.6;
+  max-width: 600px;
+  margin-top: 8px;
+}
+
+/* Tab: Pricing Table */
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.filter-pill {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  font-size: 12px;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-pill.active {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.pricing-table-wrap {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow-x: auto;
+}
+
+.pricing-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.pricing-table th,
+.pricing-table td {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.pricing-table th {
+  background: #fafaf8;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  color: #666;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.pricing-table tr:hover {
+  background: #fdfdfc;
+}
+
+/* Tab: Booking Dedicated Card */
+.booking-page-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 36px;
+  max-width: 760px;
+  margin: auto;
+}
+
+/* 9. BRANDS MARQUEE */
+.brands-section {
+  padding: 36px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+}
+
+.brands-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(24px, 5vw, 64px);
+  flex-wrap: wrap;
+  color: #8c8c88;
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: 0.06em;
+}
+
+/* 10. REVIEWS & FAQ */
+.reviews-section {
+  padding-top: 90px;
+  padding-bottom: 90px;
+  max-width: 1440px;
+  margin: auto;
+}
+
+.reviews-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-bottom: 70px;
+}
+
+.review-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.stars {
+  color: #f59e0b;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.review-card p {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #333;
+}
+
+.review-author {
+  margin-top: 16px;
+  font-size: 11.5px;
+  color: #777;
+}
+
+.review-author strong {
+  color: #111;
+  display: block;
+}
+
+/* 10. PHOTO 1 IN-PAGE BOOKING SECTION ("Đặt lịch kiểm tra máy ngay.") */
+.booking-section {
+  padding-top: 100px;
+  padding-bottom: 100px;
+  max-width: 1440px;
+  margin: auto;
+}
+
+.booking-container-photo1 {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: clamp(36px, 6vw, 72px);
+  align-items: start;
+}
+
+.booking-left-copy h2 {
+  font-size: clamp(34px, 4vw, 54px);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.08;
+  margin: 12px 0 20px;
+  color: var(--ink);
+}
+
+.booking-lead-text {
+  font-size: 14px;
+  color: var(--sub);
+  line-height: 1.6;
+  max-width: 440px;
+  margin-bottom: 36px;
+}
+
+.booking-online-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #666;
+  font-weight: 500;
+}
+
+.booking-online-badge .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pcb);
+}
+
+.booking-right-form {
+  background: #ffffff;
+}
+
+.booking-submit-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #111111;
+  color: #ffffff;
+  padding: 14px 34px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.25s ease, background-color 0.2s ease, box-shadow 0.25s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  margin-top: 8px;
+}
+
+.booking-submit-pill::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 8%;
+  right: 8%;
+  bottom: -6px;
+  height: 16px;
+  background: var(--pcb);
+  border-radius: 999px;
+  opacity: 0.55;
+  filter: blur(8px);
+  transition: opacity 0.3s ease, filter 0.3s ease, bottom 0.3s ease;
+}
+
+.booking-submit-pill:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: #000000;
+  box-shadow: 0 8px 24px rgba(46, 229, 157, 0.45);
+}
+
+.booking-submit-pill:hover:not(:disabled)::before {
+  opacity: 1;
+  filter: blur(14px);
+  bottom: -8px;
+}
+
+.booking-submit-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.booking-disclaimer {
+  font-size: 11.5px;
+  color: #7b7b7b;
+  line-height: 1.5;
+  margin-top: 14px;
+}
+
+/* 11. TRACKING COMPONENT */
+.tracking-search-bar {
+  display: flex;
+  gap: 12px;
+  max-width: 680px;
+  margin: 0 0 28px;
+}
+
+.tracking-search-bar input {
+  flex: 1;
+  padding: 12px 18px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  font-size: 13px;
+  outline: none;
+}
+
+.tracking-search-bar input:focus {
+  border-color: #111;
+}
+
+.tracking-result-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 28px;
+  margin-top: 20px;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.badge-pill {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  background: #f0efec;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.status-tag {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.issue-box {
+  background: #fbfbf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-size: 12.5px;
+  color: #333;
+  margin-bottom: 24px;
+}
+
+.timeline-track {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+.timeline-step {
+  text-align: center;
+}
+
+.step-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #e4e4e0;
+  color: #777;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.timeline-step.active .step-circle {
+  background: var(--pcb);
+  color: #064e3b;
+}
+
+.timeline-step .step-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #111;
+}
+
+.timeline-step .step-desc {
+  font-size: 10.5px;
+  color: #777;
+  margin-top: 4px;
+}
+
+.no-result-card {
+  padding: 24px;
+  background: #ffffff;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  text-align: center;
+  font-size: 13px;
+}
+
+/* 12. MODALS (Booking, Login, Notifications) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.modal-card {
+  background: #ffffff;
+  width: 100%;
+  max-width: 680px;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.15);
+  padding: 32px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-header h3 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #777;
+  padding: 4px;
+}
+
+.close-btn:hover {
+  color: #111;
+}
+
+.service-choice-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.choice-pill {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: #555;
+  transition: all 0.2s;
+}
+
+.choice-pill.active {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.scan-banner {
+  background: #fbfbf9;
+  border: 1px dashed #d0cfc9;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scan-banner-info h4 {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #111;
+  margin-bottom: 3px;
+}
+
+.scan-banner-info p {
+  font-size: 11px;
+  color: #777;
+}
+
+.scan-btn {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #111;
+  color: white;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.scan-btn.scanning {
+  background: #059669;
+}
+
+.booking-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.booking-form label {
+  font-size: 11px;
+  color: #555;
+  margin: 0 0 6px;
+  display: block;
+}
+
+.booking-form input,
+.booking-form textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 11px 13px;
+  font-size: 12.5px;
+  outline: none;
+  margin-bottom: 14px;
+  transition: border-color 0.2s;
+}
+
+.booking-form input:focus,
+.booking-form textarea:focus {
+  border-color: #111;
+}
+
+.form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.auto-filled-highlight {
+  animation: pulsePcbHighlight 2s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+@keyframes pulsePcbHighlight {
+  0%, 100% {
+    border-color: var(--line);
+    background-color: #ffffff;
+  }
+  50% {
+    border-color: var(--pcb);
+    background-color: rgba(46, 229, 157, 0.08);
+  }
+}
+
+/* 13. FOOTER */
+.footer {
+  min-height: 84px;
+  border-top: 1px solid var(--line);
+  padding: 24px max(7vw, 28px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg);
+  margin-top: auto;
+}
+
+.footer-caption,
+.back-top {
+  font-size: 11.5px;
+  color: #777;
+}
+
+.back-top:hover {
+  color: #111;
+}
+
+/* RESPONSIVE MEDIA QUERIES */
+@media (max-width: 760px) {
+  .nav-tabs {
+    display: none;
+  }
+  .symptoms-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .service-grid-photo2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .service-card-photo2 {
+    min-height: 240px;
+    padding: 20px 14px 22px 0;
+  }
+  .service-card-photo2:not(:first-child) {
+    padding-left: 14px;
+  }
+  .service-card-photo2:nth-child(2) {
+    border-right: 0;
+  }
+  .service-card-photo2:nth-child(3),
+  .service-card-photo2:nth-child(4) {
+    border-top: 1px solid var(--line);
+  }
+  .process-section-photo3 {
+    grid-template-columns: 1fr;
+    gap: 36px;
+    padding-top: 70px;
+    padding-bottom: 70px;
+  }
+  .section-heading {
+    display: block;
+    margin-bottom: 28px;
+  }
+  .section-heading h2 {
+    font-size: 34px;
+  }
+  .reviews-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .timeline-track {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .form-row-2 {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
