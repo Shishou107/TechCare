@@ -58,8 +58,9 @@ public static class DependencyInjection
         services.AddHostedService<SessionCleanupBackgroundService>();
 
         // 4. Authentication (JWT Bearer)
-        var jwtKey = configuration["Jwt:Key"]
-            ?? throw new InvalidOperationException("Cấu hình 'Jwt:Key' không tồn tại! Vui lòng cung cấp khóa bí mật JWT tối thiểu 32 ký tự.");
+        var rawKey = configuration["Jwt:Key"];
+        var jwtKey = !string.IsNullOrWhiteSpace(rawKey) ? rawKey : (Environment.GetEnvironmentVariable("TECHCARE_JWT_SECRET") ?? Environment.GetEnvironmentVariable("Jwt__Key"));
+        if (string.IsNullOrWhiteSpace(jwtKey)) throw new InvalidOperationException("Cấu hình 'Jwt:Key' không tồn tại! Vui lòng thiết lập biến môi trường 'TECHCARE_JWT_SECRET' hoặc .NET User-Secrets (tối thiểu 32 ký tự).");
 
         services.AddAuthentication(options =>
         {

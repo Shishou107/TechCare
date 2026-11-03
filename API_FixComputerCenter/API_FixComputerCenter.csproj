@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>techcare-api-fixcomputercenter-2026-sec</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

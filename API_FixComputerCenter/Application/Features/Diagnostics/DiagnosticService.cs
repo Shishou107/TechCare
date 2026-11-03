@@ -8,6 +8,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace API_FixComputerCenter.Application.Features.Diagnostics;
 
+public class DiskSerialInfo
+{
+    public string? Model { get; set; }
+    public string? SerialNumber { get; set; }
+    public decimal? SizeGB { get; set; }
+}
+
+public class RamModuleInfo
+{
+    public string? SerialNumber { get; set; }
+    public string? PartNumber { get; set; }
+    public decimal? CapacityGB { get; set; }
+}
+
 public class DiagnosticScanPayload
 {
     public string? SessionCode { get; set; }
@@ -18,6 +32,8 @@ public class DiagnosticScanPayload
     public string? Ram { get; set; }
     public string? Storage { get; set; }
     public string? OperatingSystem { get; set; }
+    public List<DiskSerialInfo>? DiskSerials { get; set; }
+    public List<RamModuleInfo>? RamModules { get; set; }
     public string? ScannedAt { get; set; }
     public DateTime? ReceivedAtUtc { get; set; }
 }
@@ -96,18 +112,22 @@ public class DiagnosticService : IDiagnosticService
             "echo ==========================================================",
             $"echo Dang doc cau hinh va tu dong dong bo vao don (Ma: {sessionCode})...",
             "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"try { " +
+            "$clean = { param($v) if (-not $v) { return $null }; $t = $v.ToString().Trim(); if ($t -eq '' -or $t -match '^[0\\s]+$' -or $t.ToLower() -in @('0','none','unknown','to be filled by o.e.m.','default string','not applicable','n/a','system serial number')) { return $null }; return $t }; " +
             "$cs = Get-CimInstance Win32_ComputerSystem; " +
             "$bios = Get-CimInstance Win32_Bios; " +
+            "$machineSn = & $clean $bios.SerialNumber; " +
             "$cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name -replace '\\s+',' '; " +
             "$mem = Get-CimInstance Win32_PhysicalMemory; " +
             "$ramGB = [Math]::Round(($mem | Measure Capacity -Sum).Sum/1GB); " +
-            "$disks = (Get-CimInstance Win32_DiskDrive | ForEach-Object { '' + [Math]::Round($_.Size/1GB) + 'GB ' + $_.Model.Trim() }) -join ' | '; " +
+            "$diskItems = @(Get-CimInstance Win32_DiskDrive | ForEach-Object { $sn = & $clean $_.SerialNumber; $sz = if ($_.Size) { [Math]::Round($_.Size/1GB) } else { 0 }; $md = if ($_.Model) { $_.Model.Trim() } else { 'Disk Drive' }; [PSCustomObject]@{ Model = $md; SerialNumber = $sn; SizeGB = $sz } }); " +
+            "$ramItems = @(Get-CimInstance Win32_PhysicalMemory | ForEach-Object { $sn = & $clean $_.SerialNumber; $pn = & $clean $_.PartNumber; $cap = if ($_.Capacity) { [Math]::Round($_.Capacity/1GB) } else { 0 }; [PSCustomObject]@{ SerialNumber = $sn; PartNumber = $pn; CapacityGB = $cap } }); " +
+            "$disks = ($diskItems | ForEach-Object { '' + $_.SizeGB + 'GB ' + $_.Model }) -join ' | '; " +
             "$os = (Get-CimInstance Win32_OperatingSystem).Caption; " +
-            $"$payload = @{{ SessionCode = '{sessionCode}'; Manufacturer = $cs.Manufacturer.Trim(); Model = $cs.Model.Trim(); SerialNumber = $bios.SerialNumber.Trim(); Cpu = $cpu; Ram = ($ramGB.ToString() + ' GB'); Storage = $disks; OperatingSystem = $os }}; " +
-            "$json = $payload | ConvertTo-Json; " +
+            $"$payload = [PSCustomObject]@{{ SessionCode = '{sessionCode}'; Manufacturer = if ($cs.Manufacturer) {{ $cs.Manufacturer.Trim() }} else {{ '' }}; Model = if ($cs.Model) {{ $cs.Model.Trim() }} else {{ '' }}; SerialNumber = $machineSn; Cpu = $cpu; Ram = ($ramGB.ToString() + ' GB'); Storage = $disks; OperatingSystem = $os; DiskSerials = $diskItems; RamModules = $ramItems }}; " +
+            "$json = $payload | ConvertTo-Json -Depth 4; " +
             $"Invoke-RestMethod -Uri '{targetUrl}' -Method Post -Body $json -ContentType 'application/json; charset=utf-8' -TimeoutSec 5; " +
-            "Write-Host '[OK] Da tu dong nhung cau hinh vao form tren trinh duyet!' -ForegroundColor Green; " +
-            "} catch { Write-Host '[!] Khong the ket noi API. Vui long dan bang tay tu Clipboard.' -ForegroundColor Yellow; } " +
+            "Write-Host '[OK] Da tu dong nhung cau hinh va serial linh kien vao he thong!' -ForegroundColor Green; " +
+            "} catch { Write-Host '[!] Khong the ket noi API. Vui long kiem tra mang hoac nhap tay.' -ForegroundColor Yellow; } " +
             "Start-Sleep -Seconds 3;\"",
             "exit"
         };

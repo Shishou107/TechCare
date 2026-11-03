@@ -34,6 +34,8 @@ public class BookAppointmentRequest
     public string? Ram { get; set; }
     public string? Storage { get; set; }
     public string? OperatingSystem { get; set; }
+    public string? DiskSerialsJson { get; set; }
+    public string? RamModulesJson { get; set; }
     public string IssueDescription { get; set; } = string.Empty;
     public DateTime? ScheduledAtUtc { get; set; }
 }
@@ -122,7 +124,7 @@ public class AppointmentService : IAppointmentService
 
         long? deviceId = null;
         string modelName = req.ModelName?.Trim() ?? "Laptop";
-        if (!string.IsNullOrWhiteSpace(req.ModelName) || !string.IsNullOrWhiteSpace(req.Cpu))
+        if (!string.IsNullOrWhiteSpace(req.ModelName) || !string.IsNullOrWhiteSpace(req.Cpu) || !string.IsNullOrWhiteSpace(req.SerialNumber))
         {
             var device = new Device
             {
@@ -133,7 +135,7 @@ public class AppointmentService : IAppointmentService
                 RamDescription = req.Ram?.Trim(),
                 StorageDescription = req.Storage?.Trim(),
                 OperatingSystem = req.OperatingSystem?.Trim(),
-                Notes = req.IssueDescription.Trim(),
+                Notes = BuildDeviceHardwareNotes(req.IssueDescription.Trim(), req.DiskSerialsJson, req.RamModulesJson),
                 CreatedAtUtc = DateTime.UtcNow
             };
             _db.Devices.Add(device);
@@ -196,6 +198,19 @@ public class AppointmentService : IAppointmentService
             appointment.Status,
             appointment.CreatedAtUtc
         );
+    }
+
+    private static string BuildDeviceHardwareNotes(string issueDesc, string? diskSerials, string? ramModules)
+    {
+        var notes = issueDesc;
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(diskSerials)) parts.Add($"Ổ cứng: {diskSerials}");
+        if (!string.IsNullOrWhiteSpace(ramModules)) parts.Add($"RAM: {ramModules}");
+        if (parts.Count > 0)
+        {
+            notes += "\n[Serial linh kiện] " + string.Join(" | ", parts);
+        }
+        return notes;
     }
 
     private static string MaskPhone(string phone)

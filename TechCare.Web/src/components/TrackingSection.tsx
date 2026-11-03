@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { API_BASE_URL } from '../api/client'
 
 interface TicketInfo {
@@ -9,19 +9,26 @@ interface TicketInfo {
   status: string
   scheduledAt: string
   issue: string
+  isCourier?: boolean
+  carrierName?: string
 }
 
-export function TrackingSection() {
-  const [code, setCode] = useState('')
-  const [phone, setPhone] = useState('')
+interface TrackingSectionProps {
+  initialCode?: string
+  initialPhone?: string
+  autoSearch?: boolean
+}
+
+export function TrackingSection({ initialCode = '', initialPhone = '', autoSearch = false }: TrackingSectionProps) {
+  const [code, setCode] = useState(initialCode)
+  const [phone, setPhone] = useState(initialPhone)
   const [loading, setLoading] = useState(false)
   const [ticket, setTicket] = useState<TicketInfo | null>(null)
   const [searched, setSearched] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const handleLookup = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!code.trim() || !phone.trim()) {
+  const executeLookup = useCallback(async (searchCode: string, searchPhone: string) => {
+    if (!searchCode.trim() || !searchPhone.trim()) {
       setErrorMessage('Vui lòng nhập cả Mã phiếu/đơn và Số điện thoại để tra cứu bảo mật.')
       setSearched(true)
       return
@@ -33,24 +40,31 @@ export function TrackingSection() {
     setErrorMessage(null)
 
     try {
-      // Safe, dedicated tracking endpoint (requires both Code and Phone for data privacy)
       const queryParams = new URLSearchParams({
-        code: code.trim(),
-        phone: phone.trim()
+        code: searchCode.trim(),
+        phone: searchPhone.trim()
       })
       const res = await fetch(`${API_BASE_URL}/api/v1/appointments/track?${queryParams.toString()}`)
       if (res.ok) {
         const result = await res.json()
         if (result && result.found && result.data) {
           const found = result.data
+          const issueText = found.customerDescription || found.subject || found.customerIssue || 'Kiểm tra phần cứng tổng thể'
+          const isCourier = issueText.includes('GỬI CHUYỂN PHÁT') || issueText.includes('GHN') || issueText.includes('GHTK') || issueText.includes('VIETTEL')
+          let carrier = 'GHN Express'
+          if (issueText.includes('GHTK')) carrier = 'Giao Hàng Tiết Kiệm (GHTK)'
+          else if (issueText.includes('VIETTEL')) carrier = 'Viettel Post'
+
           setTicket({
-            code: found.appointmentCode || found.ticketCode || code.trim().toUpperCase(),
+            code: found.appointmentCode || found.ticketCode || searchCode.trim().toUpperCase(),
             customerName: found.customerName || 'Khách hàng',
-            phone: found.customerPhone || phone.trim(),
+            phone: found.customerPhone || searchPhone.trim(),
             modelName: found.modelName || 'Laptop',
             status: found.status || 'BOOKED',
             scheduledAt: found.scheduledAtUtc ? new Date(found.scheduledAtUtc).toLocaleString('vi-VN') : 'Đang xử lý',
-            issue: found.customerDescription || found.subject || found.customerIssue || 'Kiểm tra phần cứng tổng thể',
+            issue: issueText,
+            isCourier,
+            carrierName: carrier,
           })
         } else {
           setErrorMessage(result.message || 'Không tìm thấy thông tin đơn hẹn hoặc phiếu sửa chữa phù hợp.')
@@ -64,9 +78,22 @@ export function TrackingSection() {
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  useEffect(() => {
+    if (initialCode) setCode(initialCode)
+    if (initialPhone) setPhone(initialPhone)
+    if (autoSearch && initialCode && initialPhone) {
+      executeLookup(initialCode, initialPhone)
+    }
+  }, [initialCode, initialPhone, autoSearch, executeLookup])
+
+  const handleLookup = (e: React.FormEvent) => {
+    e.preventDefault()
+    executeLookup(code, phone)
   }
 
-  const steps = [
+  const standardSteps = [
     { key: 'BOOKED', label: '1. Đã đặt hẹn', desc: 'Tiếp nhận yêu cầu trên hệ thống' },
     { key: 'RECEIVED', label: '2. Đã nhận máy', desc: 'Lập biên bản ngoại quan tại quầy' },
     { key: 'DIAGNOSING', label: '3. Đang kiểm tra', desc: 'Kỹ sư đo đạc xác định nguyên nhân' },
@@ -90,12 +117,12 @@ export function TrackingSection() {
       <div className="section-heading">
         <div>
           <div className="eyebrow" style={{ textAlign: 'left', marginBottom: '8px' }}>
-            MINH BẠCH TIẾN TRÌNH
+            MINH BẠCH TIẾN TRÌNH & HÀNH TRÌNH
           </div>
           <h2>Tra cứu đơn sửa & Bảo hành.</h2>
         </div>
         <p className="section-intro">
-          Nhập mã phiếu hẹn hoặc mã sửa chữa cùng số điện thoại đăng ký của bạn để theo dõi tiến trình trực tiếp theo thời gian thực.
+          Nhập mã phiếu hẹn hoặc mã vận đơn cùng số điện thoại đăng ký của bạn để theo dõi tiến trình trực tiếp theo thời gian thực.
         </p>
       </div>
 
@@ -133,30 +160,83 @@ export function TrackingSection() {
             </div>
             <div className="status-tag">
               <span className="status-dot"></span>
-              <strong>{steps[currentIdx]?.label || ticket.status}</strong>
+              <strong>{standardSteps[currentIdx]?.label || ticket.status}</strong>
             </div>
           </div>
 
           <div className="issue-box">
-            <strong>Hiện trạng / Yêu cầu:</strong> {ticket.issue}
+            <strong>Hiện trạng / Yêu cầu tiếp nhận:</strong> {ticket.issue}
           </div>
 
-          {/* Timeline */}
-          <div className="timeline-track">
-            {steps.map((st, i) => (
-              <div key={st.key} className={`timeline-step ${i <= currentIdx ? 'active' : ''}`}>
-                <div className="step-circle">{i <= currentIdx ? '✓' : i + 1}</div>
-                <div className="step-title">{st.label}</div>
-                <div className="step-desc">{st.desc}</div>
-              </div>
-            ))}
+          {/* Standard In-Shop Repair Timeline */}
+          <div style={{ marginBottom: '28px' }}>
+            <h4 style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.04em', color: '#555', marginBottom: '14px' }}>
+              Tiến trình kỹ thuật tại xưởng TechCare:
+            </h4>
+            <div className="timeline-track">
+              {standardSteps.map((st, i) => (
+                <div key={st.key} className={`timeline-step ${i <= currentIdx ? 'active' : ''}`}>
+                  <div className="step-circle">{i <= currentIdx ? '✓' : i + 1}</div>
+                  <div className="step-title">{st.label}</div>
+                  <div className="step-desc">{st.desc}</div>
+                </div>
+              ))}
+            </div>
           </div>
+
+          {/* Courier Transport Route Diagram if booked via COURIER */}
+          {ticket.isCourier && (
+            <div className="courier-timeline-section" style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                <div>
+                  <h4 style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--ink)' }}>
+                    📦 Hành trình vận chuyển liên tỉnh — {ticket.carrierName}
+                  </h4>
+                  <span style={{ fontSize: '11.5px', color: '#777' }}>
+                    * Vị trí và thời gian cập nhật theo sự kiện quét mã của đơn vị vận chuyển
+                  </span>
+                </div>
+                <span style={{ fontSize: '11px', background: '#ecfdf5', color: '#065f46', padding: '3px 9px', borderRadius: '999px', fontWeight: 600 }}>
+                  Đã kích hoạt bảo hiểm kiện hàng
+                </span>
+              </div>
+
+              {/* Courier Milestones Tracker */}
+              <div className="courier-route-grid">
+                <div className="courier-milestone done">
+                  <div className="milestone-dot">✓</div>
+                  <div className="milestone-name">Đã tạo vận đơn</div>
+                  <div className="milestone-sub">Kho gửi ghi nhận</div>
+                </div>
+                <div className="courier-milestone active">
+                  <div className="milestone-dot">●</div>
+                  <div className="milestone-name">Bưu tá lấy hàng</div>
+                  <div className="milestone-sub">Đang điều phối bưu tá</div>
+                </div>
+                <div className="courier-milestone">
+                  <div className="milestone-dot">3</div>
+                  <div className="milestone-name">Kho trung chuyển</div>
+                  <div className="milestone-sub">Phân loại liên tỉnh</div>
+                </div>
+                <div className="courier-milestone">
+                  <div className="milestone-dot">4</div>
+                  <div className="milestone-name">Đang giao tới tiệm</div>
+                  <div className="milestone-sub">Bưu tá phát hàng</div>
+                </div>
+                <div className="courier-milestone">
+                  <div className="milestone-dot">5</div>
+                  <div className="milestone-name">Tiệm TechCare nhận</div>
+                  <div className="milestone-sub">Kỹ thuật viên ký nhận</div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {searched && !ticket && !loading && (
         <div className="no-result-card">
-          <p>Không tìm thấy phiếu sửa chữa khớp với thông tin đã nhập.</p>
+          <p>Không tìm thấy phiếu sửa chữa hoặc đơn hẹn khớp với thông tin đã nhập.</p>
           <span style={{ fontSize: '12.5px', color: '#c53030', display: 'block', marginTop: '6px' }}>
             {errorMessage || 'Vui lòng kiểm tra lại chính xác Mã phiếu và Số điện thoại đã đăng ký.'}
           </span>

@@ -13,6 +13,7 @@ export default function App() {
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [isNotifOpen, setIsNotifOpen] = useState(false)
   const [pricingBrand, setPricingBrand] = useState('ALL')
+  const [trackingQuery, setTrackingQuery] = useState<{ code: string; phone: string } | null>(null)
 
   // Notification state with unread count persisted in localStorage
   const [readNotifIds, setReadNotifIds] = useState<string[]>(() => {
@@ -53,6 +54,12 @@ export default function App() {
     if (issue) setSelectedIssue(issue)
     setActiveTab(tab)
     window.scrollTo({ top: 0, behavior: 'instant' })
+  }
+
+  const handleNavigateToTracking = (code: string, phone: string) => {
+    setTrackingQuery({ code, phone })
+    setActiveTab('tracking')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const scrollToTop = (e: React.MouseEvent) => {
@@ -695,14 +702,14 @@ export default function App() {
       {/* 5. TAB CONTENT: ĐẶT LỊCH & QUÉT CẤU HÌNH 1-CLICK (Photo 1) */}
       {activeTab === 'booking' && (
         <main className="tab-page-container">
-          <BookingSection selectedIssue={selectedIssue} />
+          <BookingSection selectedIssue={selectedIssue} onNavigateToTracking={handleNavigateToTracking} />
         </main>
       )}
 
       {/* 6. TAB CONTENT: TRA CỨU TIẾN TRÌNH */}
       {activeTab === 'tracking' && (
         <main className="tab-page-container">
-          <TrackingSection />
+          <TrackingSection initialCode={trackingQuery?.code} initialPhone={trackingQuery?.phone} autoSearch={Boolean(trackingQuery?.code)} />
         </main>
       )}
 

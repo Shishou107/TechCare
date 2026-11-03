@@ -1,7 +1,19 @@
 import React, { useState, useEffect } from 'react'
 import { API_BASE_URL } from '../api/client'
 
-interface HardwareSpecs {
+export interface DiskSerialInfo {
+  model?: string
+  serialNumber?: string | null
+  sizeGB?: number
+}
+
+export interface RamModuleInfo {
+  serialNumber?: string | null
+  partNumber?: string | null
+  capacityGB?: number
+}
+
+export interface HardwareSpecs {
   sessionCode?: string
   manufacturer: string
   model: string
@@ -10,14 +22,25 @@ interface HardwareSpecs {
   ram: string
   storage: string
   operatingSystem: string
+  diskSerials?: DiskSerialInfo[]
+  ramModules?: RamModuleInfo[]
 }
 
 interface BookingSectionProps {
   selectedIssue?: string
+  onNavigateToTracking?: (code: string, phone: string) => void
 }
 
-export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
-  // B6: Generate high-entropy cryptographic session code (16 hex chars / 64-bit entropy)
+function CheckIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
+
+export function BookingSection({ selectedIssue = '', onNavigateToTracking }: BookingSectionProps) {
+  // Cryptographic session code for scan syncing
   const [sessionCode] = useState(() => {
     if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
       const bytes = new Uint8Array(8)
@@ -30,6 +53,7 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
   const [isListening, setIsListening] = useState(false)
   const [autoFilled, setAutoFilled] = useState(false)
   const [showManualSpecs, setShowManualSpecs] = useState(false)
+  const [scanTimestamp, setScanTimestamp] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
     customerName: '',
@@ -41,13 +65,22 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
     ram: '',
     storage: '',
     operatingSystem: '',
+    diskSerials: [] as DiskSerialInfo[],
+    ramModules: [] as RamModuleInfo[],
     issueDescription: selectedIssue,
-    serviceType: 'AT_STORE', // AT_STORE or PICKUP
+    serviceType: 'AT_STORE' as 'AT_STORE' | 'PICKUP' | 'COURIER',
+    // Courier options
+    courierCarrier: 'GHN' as 'GHN' | 'GHTK' | 'VIETTEL',
+    province: 'Hà Nội',
+    district: 'Quận Cầu Giấy',
+    ward: 'Phường Dịch Vọng Hậu',
+    streetAddress: '',
+    insuredLaptop: true,
   })
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({})
   const [submitting, setSubmitting] = useState(false)
-  const [submitResult, setSubmitResult] = useState<{ success: boolean; code?: string; msg?: string } | null>(null)
+  const [submitResult, setSubmitResult] = useState<{ success: boolean; code?: string; msg?: string; carrier?: string } | null>(null)
 
   // Sync issue description when selected from symptoms or services
   useEffect(() => {
@@ -77,11 +110,14 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
             ram: spec.ram || prev.ram,
             storage: spec.storage || prev.storage,
             operatingSystem: spec.operatingSystem || prev.operatingSystem,
+            diskSerials: spec.diskSerials || prev.diskSerials,
+            ramModules: spec.ramModules || prev.ramModules,
           }))
 
           setIsListening(false)
           setAutoFilled(true)
-          setShowManualSpecs(true) // Automatically reveal populated specs
+          setScanTimestamp(new Date().toLocaleTimeString('vi-VN'))
+          setShowManualSpecs(false)
           setTimeout(() => setAutoFilled(false), 3500)
         }
       } catch (err) {
@@ -103,32 +139,60 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
     document.body.removeChild(a)
   }
 
-  const validateForm = () => {
+  const handleDownloadPs1 = () => {
+    setIsListening(true)
+    const downloadUrl = `${API_BASE_URL}/api/v1/diagnostics/download-script/${sessionCode}?format=ps1`
+    const a = document.createElement('a')
+    a.href = downloadUrl
+    a.download = `TechCare-Scan-${sessionCode}.ps1`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
+  const validate = () => {
     const errs: { [key: string]: string } = {}
     if (!formData.customerName.trim()) {
-      errs.customerName = 'Vui lòng nhập họ và tên của bạn.'
+      errs.customerName = 'Vui lòng nhập họ và tên của bạn'
     }
-    const phone = formData.customerPhone.trim()
-    if (!phone) {
-      errs.customerPhone = 'Vui lòng cung cấp số điện thoại liên hệ.'
-    } else if (!/^0\d{9,10}$/.test(phone)) {
-      errs.customerPhone = 'Số điện thoại không đúng định dạng (VD: 0912345678).'
+    if (!formData.customerPhone.trim()) {
+      errs.customerPhone = 'Vui lòng nhập số điện thoại'
+    } else if (!/(0[3|5|7|8|9])+([0-9]{8})\b/.test(formData.customerPhone.trim())) {
+      errs.customerPhone = 'Số điện thoại không hợp lệ (cần 10 chữ số)'
     }
-    if (!formData.issueDescription.trim() || formData.issueDescription.trim().length < 5) {
-      errs.issueDescription = 'Vui lòng mô tả hiện tượng hư hỏng tối thiểu 5 ký tự.'
+    if (!formData.issueDescription.trim()) {
+      errs.issueDescription = 'Vui lòng mô tả hiện tượng máy bị lỗi'
     }
+    if (formData.serviceType === 'COURIER' && !formData.streetAddress.trim()) {
+      errs.streetAddress = 'Vui lòng nhập số nhà, tên đường để bưu tá đến lấy hàng'
+    }
+
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!validateForm()) return
+    if (!validate()) return
 
     setSubmitting(true)
     setSubmitResult(null)
 
     try {
+      let courierNotes = ''
+      if (formData.serviceType === 'COURIER') {
+        courierNotes = `\n[GỬI CHUYỂN PHÁT ${formData.courierCarrier}] Lấy hàng tại: ${formData.streetAddress.trim()}, ${formData.ward}, ${formData.district}, ${formData.province}. Bảo hiểm laptop: ${formData.insuredLaptop ? 'CÓ' : 'KHÔNG'}`
+      } else if (formData.serviceType === 'PICKUP') {
+        courierNotes = `\n[GIAO NHẬN TẬN NƠI] Nội thành TP.HCM / Hà Nội`
+      }
+
+      const servicePrefix =
+        formData.serviceType === 'COURIER'
+          ? `GỬI CHUYỂN PHÁT (${formData.courierCarrier})`
+          : formData.serviceType === 'PICKUP'
+          ? 'GIAO NHẬN TẬN NƠI'
+          : 'TẠI TIỆM'
+
       const payload = {
         customerName: formData.customerName.trim(),
         customerPhone: formData.customerPhone.trim(),
@@ -139,33 +203,37 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
         ram: formData.ram?.trim() || null,
         storage: formData.storage?.trim() || null,
         operatingSystem: formData.operatingSystem?.trim() || null,
-        issueDescription: `[${formData.serviceType === 'PICKUP' ? 'GIAO NHẬN TẬN NƠI' : 'TẠI TIỆM'}] ${formData.issueDescription.trim()}`,
+        diskSerialsJson: formData.diskSerials && formData.diskSerials.length > 0 ? JSON.stringify(formData.diskSerials) : null,
+        ramModulesJson: formData.ramModules && formData.ramModules.length > 0 ? JSON.stringify(formData.ramModules) : null,
+        issueDescription: `[${servicePrefix}] ${formData.issueDescription.trim()}${courierNotes}`,
       }
 
-      const res = await fetch(`${API_BASE_URL}/api/v1/appointments/submit`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/appointments/book`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(payload),
       })
 
       const data = await res.json()
+
       if (res.ok && data.success) {
         setSubmitResult({
           success: true,
           code: data.appointmentCode,
-          msg: 'Yêu cầu kiểm tra máy đã được tiếp nhận thành công vào hệ thống TechCare!',
+          carrier: formData.serviceType === 'COURIER' ? formData.courierCarrier : undefined,
         })
       } else {
-        const errorDetails = data.errors ? Object.values(data.errors).flat().join(' ') : null
         setSubmitResult({
           success: false,
-          msg: errorDetails || data.message || 'Lỗi kiểm tra dữ liệu hoặc máy chủ.',
+          msg: data.message || 'Đã có lỗi xảy ra khi gửi yêu cầu. Vui lòng thử lại.',
         })
       }
     } catch {
       setSubmitResult({
         success: false,
-        msg: 'Không thể kết nối đến máy chủ API TechCare. Vui lòng kiểm tra lại dịch vụ backend.',
+        msg: 'Lỗi mạng hoặc không thể kết nối tới máy chủ. Vui lòng thử lại sau.',
       })
     } finally {
       setSubmitting(false)
@@ -174,8 +242,6 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
 
   const handleReset = () => {
     setSubmitResult(null)
-    setErrors({})
-    setShowManualSpecs(false)
     setFormData({
       customerName: '',
       customerPhone: '',
@@ -186,13 +252,29 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
       ram: '',
       storage: '',
       operatingSystem: '',
+      diskSerials: [],
+      ramModules: [],
       issueDescription: '',
       serviceType: 'AT_STORE',
+      courierCarrier: 'GHN',
+      province: 'Hà Nội',
+      district: 'Quận Cầu Giấy',
+      ward: 'Phường Dịch Vọng Hậu',
+      streetAddress: '',
+      insuredLaptop: true,
     })
+    setScanTimestamp(null)
   }
 
+  const hasHardwareData = Boolean(
+    formData.serialNumber ||
+    formData.modelName ||
+    (formData.diskSerials && formData.diskSerials.length > 0) ||
+    (formData.ramModules && formData.ramModules.length > 0)
+  )
+
   return (
-    <section id="booking-section" className="booking-section section-pad">
+    <section id="booking-section" className="booking-section">
       <div className="booking-container-photo1">
         {/* Left Column: Heading and info */}
         <div className="booking-left-copy">
@@ -201,7 +283,7 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
           </div>
           <h2>Đặt lịch kiểm tra máy ngay.</h2>
           <p className="booking-lead-text">
-            Chỉ cần 30 giây để gửi thông tin. Kỹ thuật viên TechCare sẽ liên hệ xác nhận, chuẩn bị sẵn linh kiện và hỗ trợ kiểm tra trực tiếp tại tiệm hoặc nhận máy tận nơi.
+            Chỉ cần 30 giây để gửi thông tin. Kỹ thuật viên TechCare sẽ liên hệ xác nhận, chuẩn bị sẵn linh kiện và hỗ trợ kiểm tra trực tiếp tại tiệm, đến nhận tận nơi hoặc tiếp nhận gửi chuyển phát toàn quốc.
           </p>
 
           <div className="booking-online-badge">
@@ -209,12 +291,10 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
             <span>Hệ thống trực tuyến tiếp nhận 24/7 | Chi nhánh TechCare</span>
           </div>
 
-          <div style={{ marginTop: '28px', padding: '16px 20px', background: '#ffffff', border: '1px solid var(--line)', borderRadius: '12px' }}>
-            <h4 style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--ink)', marginBottom: '6px' }}>
-              Quy trình tiếp nhận chuẩn hóa
-            </h4>
-            <p style={{ fontSize: '12.5px', color: 'var(--sub)', lineHeight: 1.6 }}>
-              1. Gửi thông tin lỗi máy → 2. Nhận máy & lập biên bản ảnh chụp → 3. Đo đạc báo giá minh bạch → 4. Khách đồng ý mới sửa chữa.
+          <div className="booking-sidebar-note">
+            <h4>Minh bạch linh kiện & Chống tráo đổi</h4>
+            <p>
+              Tính năng Quét 1-Click tự động trích xuất Serial máy, Serial ổ cứng SSD/HDD và từng thanh RAM vào biên nhận. Khách hàng và kỹ thuật viên đều có bằng chứng đối chiếu trước & sau sửa.
             </p>
           </div>
         </div>
@@ -222,54 +302,242 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
         {/* Right Column: 2-Step Form */}
         <div className="booking-right-form">
           {submitResult?.success ? (
-            <div className="modal-success-box" style={{ background: '#fbfbf9', border: '1px solid #e4e4e0', padding: '36px', borderRadius: '14px', textAlign: 'center' }}>
-              <div className="success-icon" style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--pcb)', color: '#064e3b', display: 'grid', placeItems: 'center', margin: '0 auto 16px', fontSize: '20px', fontWeight: 'bold' }}>
+            <div className="modal-success-box">
+              <div className="success-icon-mono">
                 ✓
               </div>
               <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px' }}>ĐẶT LỊCH THÀNH CÔNG!</h3>
-              <p style={{ fontSize: '15px', color: '#111', marginBottom: '12px' }}>
-                Mã phiếu hẹn: <strong>{submitResult.code}</strong>
+              
+              <div className="success-code-card">
+                <div className="success-code-label">Mã phiếu hẹn / Mã tra cứu</div>
+                <div className="success-code-val">
+                  {submitResult.code}
+                </div>
+                {submitResult.carrier && (
+                  <div className="success-carrier-sub">
+                    Đơn vị vận chuyển đối tác: {submitResult.carrier} Express (Toàn quốc)
+                  </div>
+                )}
+              </div>
+
+              <p style={{ fontSize: '13.5px', color: '#555', lineHeight: 1.6, maxWidth: '480px', margin: '0 auto 24px' }}>
+                Kỹ thuật viên của TechCare sẽ liên hệ lại qua số <strong>{formData.customerPhone}</strong> trong vòng 15 phút để xác nhận và chuẩn bị phương án tiếp nhận.
               </p>
-              <p style={{ fontSize: '13px', color: '#666', lineHeight: 1.6, maxWidth: '480px', margin: '0 auto 24px' }}>
-                Kỹ thuật viên của TechCare sẽ liên hệ lại qua số <strong>{formData.customerPhone}</strong> trong vòng 15 phút để xác nhận và chuẩn bị linh kiện.
-              </p>
-              <button
-                type="button"
-                className="button"
-                onClick={handleReset}
-              >
-                Đặt lịch thiết bị khác <span>→</span>
-              </button>
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                {onNavigateToTracking && submitResult.code && (
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => onNavigateToTracking(submitResult.code!, formData.customerPhone)}
+                  >
+                    Theo dõi hành trình <span>→</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="button"
+                  style={{ background: '#ffffff', color: '#111', border: '1px solid #111' }}
+                  onClick={handleReset}
+                >
+                  Đặt lịch thiết bị khác
+                </button>
+              </div>
             </div>
           ) : (
-            <form className="booking-form" onSubmit={handleSubmit} noValidate>
-              {/* STEP 1: MANDATORY CONTACT & ISSUE DETAILS */}
-              <div className="booking-step-group">
-                <div className="step-badge-row">
-                  <span className="step-badge">Bước 1</span>
-                  <span className="step-title">Thông tin tiếp nhận (Bắt buộc)</span>
+            <form className="booking-form booking-stepper-container" onSubmit={handleSubmit} noValidate>
+              
+              {/* STEP 1: SERVICE TYPE & CONTACT INFO */}
+              <div className="booking-step-group step-1-group">
+                <div className="step-header-row">
+                  <div className="step-num-circle">1</div>
+                  <div className="step-header-text">
+                    <span className="step-title">Thông tin tiếp nhận</span>
+                    <span className="step-subtitle">Chọn hình thức phục vụ và thông tin liên hệ</span>
+                  </div>
                 </div>
 
-                {/* Service Type Selection */}
-                <div className="service-choice-row" style={{ marginTop: '12px' }}>
-                  <label
-                    className={`choice-pill ${formData.serviceType === 'AT_STORE' ? 'active' : ''}`}
+                {/* 3 Service Type Option Cards (Equal height, pure black & white, no icon boxes) */}
+                <div className="service-cards-grid">
+                  {/* Card 1: Tại cửa hàng */}
+                  <div
+                    className={`service-option-card ${formData.serviceType === 'AT_STORE' ? 'selected' : ''}`}
                     onClick={() => setFormData({ ...formData, serviceType: 'AT_STORE' })}
                   >
-                    <strong>Mang tới tiệm</strong>
-                    <span className="choice-sublabel">Kiểm tra trực tiếp, lấy liền tại xưởng</span>
-                  </label>
-                  <label
-                    className={`choice-pill ${formData.serviceType === 'PICKUP' ? 'active' : ''}`}
+                    <div className="card-top-row">
+                      <h4 className="card-title">Tại cửa hàng</h4>
+                      <div className={`card-check-pill ${formData.serviceType === 'AT_STORE' ? 'checked' : ''}`}>
+                        {formData.serviceType === 'AT_STORE' ? <CheckIcon /> : null}
+                      </div>
+                    </div>
+                    <div className="card-fact-text">Miễn phí kiểm tra · 30–45 phút</div>
+                    <p className="card-desc">Kỹ thuật viên đo đạc, kiểm tra trực tiếp trước mặt khách.</p>
+                  </div>
+
+                  {/* Card 2: Kỹ thuật đến tận nơi */}
+                  <div
+                    className={`service-option-card ${formData.serviceType === 'PICKUP' ? 'selected' : ''}`}
                     onClick={() => setFormData({ ...formData, serviceType: 'PICKUP' })}
                   >
-                    <strong>Nhận máy tận nơi</strong>
-                    <span className="choice-sublabel">Kỹ thuật viên nhận máy nội thành (1–2h)</span>
-                  </label>
+                    <div className="card-top-row">
+                      <h4 className="card-title">Kỹ thuật đến tận nơi</h4>
+                      <div className={`card-check-pill ${formData.serviceType === 'PICKUP' ? 'checked' : ''}`}>
+                        {formData.serviceType === 'PICKUP' ? <CheckIcon /> : null}
+                      </div>
+                    </div>
+                    <div className="card-fact-text">Nội thành · Phí thu hộ 30–50k</div>
+                    <p className="card-desc">Nhận máy tận nhà (1–2h), xuất biên nhận điện tử minh bạch.</p>
+                  </div>
+
+                  {/* Card 3: Gửi chuyển phát toàn quốc */}
+                  <div
+                    className={`service-option-card ${formData.serviceType === 'COURIER' ? 'selected' : ''}`}
+                    onClick={() => setFormData({ ...formData, serviceType: 'COURIER' })}
+                  >
+                    <div className="card-top-row">
+                      <h4 className="card-title">Gửi chuyển phát</h4>
+                      <div className={`card-check-pill ${formData.serviceType === 'COURIER' ? 'checked' : ''}`}>
+                        {formData.serviceType === 'COURIER' ? <CheckIcon /> : null}
+                      </div>
+                    </div>
+                    <div className="card-fact-text">Toàn quốc · Đóng gói chống sốc</div>
+                    <p className="card-desc">Liên tỉnh qua GHN / GHTK / Viettel Post, bảo hiểm toàn phần.</p>
+                  </div>
                 </div>
 
+                {/* Additional Shipping & Courier Fields when COURIER selected */}
+                {formData.serviceType === 'COURIER' && (
+                  <div className="courier-shipping-drawer">
+                    <div className="courier-drawer-header">
+                      <span className="courier-drawer-title">Địa chỉ lấy máy & Đơn vị vận chuyển đối tác</span>
+                    </div>
+
+                    <div className="form-row-2">
+                      <div>
+                        <label>Tỉnh / Thành phố *</label>
+                        <select
+                          value={formData.province}
+                          onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                          className="courier-select"
+                        >
+                          <option value="Hà Nội">Hà Nội</option>
+                          <option value="TP. Hồ Chí Minh">TP. Hồ Chí Minh</option>
+                          <option value="Đà Nẵng">Đà Nẵng</option>
+                          <option value="Hải Phòng">Hải Phòng</option>
+                          <option value="Cần Thơ">Cần Thơ</option>
+                          <option value="Bình Dương">Bình Dương</option>
+                          <option value="Đồng Nai">Đồng Nai</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label>Quận / Huyện *</label>
+                        <select
+                          value={formData.district}
+                          onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+                          className="courier-select"
+                        >
+                          <option value="Quận Cầu Giấy">Quận Cầu Giấy</option>
+                          <option value="Quận Đống Đa">Quận Đống Đa</option>
+                          <option value="Quận 1">Quận 1</option>
+                          <option value="Quận 3">Quận 3</option>
+                          <option value="Quận Bình Thạnh">Quận Bình Thạnh</option>
+                          <option value="Quận Hải Châu">Quận Hải Châu</option>
+                          <option value="Huyện / Thị xã khác">Huyện / Thị xã khác</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row-2">
+                      <div>
+                        <label>Phường / Xã *</label>
+                        <input
+                          type="text"
+                          placeholder="Ví dụ: Phường Dịch Vọng Hậu"
+                          value={formData.ward}
+                          onChange={(e) => setFormData({ ...formData, ward: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label>Số nhà, Tên đường (Chi tiết) *</label>
+                        <input
+                          type="text"
+                          placeholder="Ví dụ: Số 25 Ngõ 102 Trần Thái Tông"
+                          value={formData.streetAddress}
+                          onChange={(e) => {
+                            setFormData({ ...formData, streetAddress: e.target.value })
+                            if (errors.streetAddress) setErrors({ ...errors, streetAddress: '' })
+                          }}
+                          className={errors.streetAddress ? 'input-error' : ''}
+                        />
+                        {errors.streetAddress && <span className="field-error-msg">{errors.streetAddress}</span>}
+                      </div>
+                    </div>
+
+                    {/* Carrier comparison list */}
+                    <div style={{ marginTop: '10px', marginBottom: '12px' }}>
+                      <label style={{ marginBottom: '8px' }}>Chọn đơn vị chuyển phát đối tác:</label>
+                      <div className="carrier-list-box">
+                        <label className={`carrier-item ${formData.courierCarrier === 'GHN' ? 'active' : ''}`}>
+                          <input
+                            type="radio"
+                            name="courierCarrier"
+                            checked={formData.courierCarrier === 'GHN'}
+                            onChange={() => setFormData({ ...formData, courierCarrier: 'GHN' })}
+                          />
+                          <div className="carrier-info">
+                            <strong>Giao Hàng Nhanh (GHN Express)</strong>
+                            <span>Dự kiến: 2–3 ngày · Phí cước ước tính: 35.000đ</span>
+                          </div>
+                          <span className="carrier-tag-mono">Đề xuất</span>
+                        </label>
+
+                        <label className={`carrier-item ${formData.courierCarrier === 'GHTK' ? 'active' : ''}`}>
+                          <input
+                            type="radio"
+                            name="courierCarrier"
+                            checked={formData.courierCarrier === 'GHTK'}
+                            onChange={() => setFormData({ ...formData, courierCarrier: 'GHTK' })}
+                          />
+                          <div className="carrier-info">
+                            <strong>Giao Hàng Tiết Kiệm (GHTK)</strong>
+                            <span>Dự kiến: 3–4 ngày · Phí cước ước tính: 30.000đ</span>
+                          </div>
+                        </label>
+
+                        <label className={`carrier-item ${formData.courierCarrier === 'VIETTEL' ? 'active' : ''}`}>
+                          <input
+                            type="radio"
+                            name="courierCarrier"
+                            checked={formData.courierCarrier === 'VIETTEL'}
+                            onChange={() => setFormData({ ...formData, courierCarrier: 'VIETTEL' })}
+                          />
+                          <div className="carrier-info">
+                            <strong>Viettel Post</strong>
+                            <span>Dự kiến: 2–3 ngày · Phí cước ước tính: 38.000đ</span>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Insurance & Anti-shock Packaging reminder */}
+                    <div className="courier-notice-box">
+                      <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', fontWeight: 600, color: 'var(--ink)' }}>
+                        <input
+                          type="checkbox"
+                          checked={formData.insuredLaptop}
+                          onChange={(e) => setFormData({ ...formData, insuredLaptop: e.target.checked })}
+                        />
+                        <span>Khai giá & Bảo hiểm toàn phần kiện hàng Laptop (TechCare hỗ trợ thủ tục với hãng vận chuyển)</span>
+                      </label>
+                      <p style={{ fontSize: '11.5px', color: '#666', marginTop: '6px', lineHeight: 1.5 }}>
+                        <strong>Lưu ý đóng gói an toàn:</strong> Vui lòng bọc thiết bị tối thiểu 3–4 lớp xốp khí chống sốc và chèn cố định trong thùng carton trước khi bàn giao cho bưu tá.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Name & Phone */}
-                <div className="form-row-2">
+                <div className="form-row-2" style={{ marginTop: '16px' }}>
                   <div>
                     <label>Họ và tên *</label>
                     <input
@@ -302,10 +570,10 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
 
                 {/* Issue Description */}
                 <div>
-                  <label>Tình trạng lỗi cần sửa chữa *</label>
+                  <label>Tình trạng lỗi cần kiểm tra & sửa chữa *</label>
                   <textarea
                     rows={3}
-                    placeholder="Mô tả hiện tượng: bật không lên nguồn, màn hình sọc, quạt kêu to, đổ nước..."
+                    placeholder="Mô tả hiện tượng: bật không lên nguồn, sọc màn hình, quạt kêu to, đổ nước, mất mạng..."
                     value={formData.issueDescription}
                     onChange={(e) => {
                       setFormData({ ...formData, issueDescription: e.target.value })
@@ -322,86 +590,213 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
                   </div>
                 )}
 
-                {/* SUBMIT BUTTON - PLACED DIRECTLY UNDER STEP 1 */}
+                {/* SUBMIT BUTTON */}
                 <div style={{ marginTop: '6px' }}>
                   <button
                     type="submit"
                     className="booking-submit-pill"
                     disabled={submitting}
                   >
-                    {submitting ? 'Đang gửi yêu cầu...' : 'Gửi yêu cầu kiểm tra máy'} <span>→</span>
+                    {submitting ? 'Đang gửi yêu cầu...' : 'Gửi yêu cầu tiếp nhận máy'} <span>→</span>
                   </button>
                 </div>
 
                 <p className="booking-disclaimer" style={{ marginTop: '10px' }}>
-                  Yêu cầu sẽ được gửi trực tiếp đến hệ thống TechCare. Kỹ thuật viên sẽ liên hệ xác nhận trong vòng 15 phút.
+                  Yêu cầu sẽ được gửi tức thì đến hệ thống TechCare. Kỹ thuật viên sẽ liên hệ xác nhận trong vòng 15 phút.
                 </p>
               </div>
 
-              {/* STEP 2: HARDWARE SPECIFICATIONS (OPTIONAL & COLLAPSIBLE) */}
-              <div className="booking-step-group step-2-container" style={{ marginTop: '24px' }}>
-                <div className="step-badge-row">
-                  <span className="step-badge step-badge-secondary">Bước 2</span>
-                  <span className="step-title">Cấu hình máy (Tùy chọn — Tự động điền)</span>
+              {/* STEP CONNECTOR LINE */}
+              <div className="stepper-connector-line">
+                <span className="stepper-dot"></span>
+              </div>
+
+              {/* STEP 2: HARDWARE SPECIFICATIONS & ANTI-TAMPER SERIAL VERIFICATION */}
+              <div className="booking-step-group step-2-group">
+                <div className="step-header-row">
+                  <div className="step-num-circle step-num-circle-secondary">2</div>
+                  <div className="step-header-text">
+                    <span className="step-title">Cấu hình & Serial linh kiện (Tùy chọn — Chống tráo đổi)</span>
+                    <span className="step-subtitle">Quét tự động để lưu biên nhận hoặc bổ sung thông số bằng tay</span>
+                  </div>
                 </div>
 
-                {/* Prominent Quick-Scan Feature Card */}
-                <div className="quick-scan-card-photo">
-                  <div className="scan-card-body">
-                    <div className="scan-icon-col">
-                      <div className="scan-icon-pill">⚡ 1-Click</div>
+                {/* Redesigned 1-Column Quick-Scan Card (Pure Monochrome) */}
+                <div className="quick-scan-card-v2">
+                  <div className="scan-card-header-bar">
+                    <div className="scan-title-wrap">
+                      <h4 className="scan-main-title">Quét tự động cấu hình & Serial linh kiện</h4>
+                      <span className="scan-click-badge">1-CLICK</span>
                     </div>
-                    <div className="scan-content-col">
-                      <h4 style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--ink)' }}>
-                        Quét tự động cấu hình máy (.bat)
-                      </h4>
-                      <p style={{ fontSize: '12px', color: 'var(--sub)', lineHeight: 1.5, marginTop: '2px' }}>
-                        {isListening ? (
-                          <span style={{ color: '#047857', fontWeight: 500 }}>
-                            ● Đang đợi đồng bộ từ máy của bạn... Vui lòng mở và chạy file .bat vừa tải về.
-                          </span>
-                        ) : autoFilled || formData.modelName ? (
-                          <span style={{ color: '#047857', fontWeight: 500 }}>
-                            ✓ Đã nhận cấu hình: {formData.modelName || 'Laptop'} {formData.cpu ? `· ${formData.cpu}` : ''} {formData.ram ? `· ${formData.ram}` : ''}
-                          </span>
-                        ) : (
-                          'Tải script nhẹ và an toàn để máy tự trích xuất Model, CPU, RAM, SSD điền vào đơn.'
-                        )}
-                      </p>
-                    </div>
-                    <div className="scan-action-col">
-                      <button
-                        type="button"
-                        className={`scan-btn-elevated ${isListening ? 'listening' : ''}`}
-                        onClick={handleStartScan}
-                      >
-                        {isListening ? 'Đang chờ đồng bộ...' : 'Tải & Quét tự động'}
-                      </button>
+
+                    <div className="scan-btn-group">
+                      {hasHardwareData ? (
+                        <button
+                          type="button"
+                          className="scan-btn-outline"
+                          onClick={handleStartScan}
+                          title="Tải lại script để quét cập nhật thông số mới"
+                        >
+                          Tải & Quét lại
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className={`scan-btn-primary ${isListening ? 'listening' : ''}`}
+                            onClick={handleStartScan}
+                          >
+                            {isListening ? 'Đang đợi máy đồng bộ...' : 'Tải script quét tự động (.bat)'}
+                          </button>
+                          <button
+                            type="button"
+                            className="scan-btn-secondary"
+                            onClick={handleDownloadPs1}
+                            title="Tải script dạng PowerShell .ps1"
+                          >
+                            .ps1
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
 
-                  <div className="scan-card-footer">
+                  <p className="scan-lead-desc">
+                    Tải script nhẹ và an toàn để máy tự trích xuất Serial máy, Serial ổ cứng SSD và từng thanh RAM vào đơn.
+                  </p>
+
+                  {/* Polling waiting indicator */}
+                  {isListening && (
+                    <div className="scan-waiting-banner">
+                      <span className="pulse-dot"></span>
+                      <span>Đang lắng nghe kết nối từ máy của bạn... Vui lòng mở và chạy file .bat vừa tải về.</span>
+                    </div>
+                  )}
+
+                  {/* Verified Hardware Details Box */}
+                  {hasHardwareData && (
+                    <div className="scan-results-box">
+                      {/* Top monochrome status bar */}
+                      <div className="scan-verified-status-bar">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px' }}>✓</span>
+                          <strong>ĐÃ XÁC THỰC CẤU HÌNH & SERIAL PHẦN CỨNG CHỐNG TRÁO ĐỔI</strong>
+                        </div>
+                        {scanTimestamp && (
+                          <span className="scan-timestamp-tag">Quét lúc: {scanTimestamp}</span>
+                        )}
+                      </div>
+
+                      {/* Technical Specs Structured List */}
+                      <div className="specs-detail-list">
+                        {/* Machine Serial & Model */}
+                        <div className="spec-item-row">
+                          <span className="spec-label">Serial máy (BIOS):</span>
+                          <span className="spec-val">
+                            {formData.serialNumber ? (
+                              <code className="mono-serial-badge">{formData.serialNumber}</code>
+                            ) : (
+                              <span style={{ color: '#888' }}>(Đối chiếu tem thân máy)</span>
+                            )}
+                            {formData.modelName && <span style={{ marginLeft: '8px', fontWeight: 500 }}>— {formData.modelName}</span>}
+                          </span>
+                        </div>
+
+                        {/* CPU */}
+                        {formData.cpu && (
+                          <div className="spec-item-row">
+                            <span className="spec-label">Vi xử lý (CPU):</span>
+                            <span className="spec-val">{formData.cpu}</span>
+                          </div>
+                        )}
+
+                        {/* Disks & Individual Serials */}
+                        {formData.diskSerials && formData.diskSerials.length > 0 ? (
+                          <div className="spec-item-row">
+                            <span className="spec-label">Ổ cứng SSD/HDD ({formData.diskSerials.length}):</span>
+                            <div className="spec-val-column">
+                              {formData.diskSerials.map((d, i) => (
+                                <div key={i} className="component-serial-line">
+                                  <span>Ổ {i + 1}: <strong>{d.sizeGB}GB {d.model}</strong></span>
+                                  {d.serialNumber ? (
+                                    <span style={{ marginLeft: '8px' }}>
+                                      Serial: <code className="mono-serial-badge">{d.serialNumber}</code>
+                                    </span>
+                                  ) : (
+                                    <span style={{ marginLeft: '8px', color: '#888', fontSize: '11.5px' }}>(Không có SN)</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : formData.storage ? (
+                          <div className="spec-item-row">
+                            <span className="spec-label">Ổ cứng:</span>
+                            <span className="spec-val">{formData.storage}</span>
+                          </div>
+                        ) : null}
+
+                        {/* RAM Modules & Individual Serials */}
+                        {formData.ramModules && formData.ramModules.length > 0 ? (
+                          <div className="spec-item-row">
+                            <span className="spec-label">Bộ nhớ RAM ({formData.ramModules.length} thanh):</span>
+                            <div className="spec-val-column">
+                              {formData.ramModules.map((r, i) => (
+                                <div key={i} className="component-serial-line">
+                                  <span>Thanh {i + 1}: <strong>{r.capacityGB}GB {r.partNumber || ''}</strong></span>
+                                  {r.serialNumber ? (
+                                    <span style={{ marginLeft: '8px' }}>
+                                      Serial: <code className="mono-serial-badge">{r.serialNumber}</code>
+                                    </span>
+                                  ) : (
+                                    <span style={{ marginLeft: '8px', color: '#888', fontSize: '11.5px' }}>(Không có SN)</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : formData.ram ? (
+                          <div className="spec-item-row">
+                            <span className="spec-label">RAM:</span>
+                            <span className="spec-val">{formData.ram}</span>
+                          </div>
+                        ) : null}
+
+                        {/* OS */}
+                        {formData.operatingSystem && (
+                          <div className="spec-item-row">
+                            <span className="spec-label">Hệ điều hành:</span>
+                            <span className="spec-val">{formData.operatingSystem}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Toggle Manual Editing Drawer */}
+                  <div className="scan-card-footer-toggle">
                     <button
                       type="button"
-                      className="toggle-manual-link"
+                      className="toggle-manual-btn"
                       onClick={() => setShowManualSpecs(!showManualSpecs)}
                     >
-                      {showManualSpecs ? '▲ Thu gọn thông số kỹ thuật' : '▼ Hoặc điền tay thông số nếu không thể quét'}
+                      {showManualSpecs ? 'Thu gọn thông số kỹ thuật' : 'Hoặc tự điền / chỉnh sửa thông số máy thủ công'}
                     </button>
                   </div>
                 </div>
 
                 {/* Collapsible Manual Specs Input Fields */}
                 {showManualSpecs && (
-                  <div className="manual-specs-drawer" style={{ marginTop: '16px' }}>
+                  <div className="manual-specs-drawer" style={{ marginTop: '14px' }}>
                     <div className="form-row-2">
                       <div>
-                        <label>Email liên hệ (Tùy chọn)</label>
+                        <label>Serial máy (BIOS / Tem thân máy)</label>
                         <input
-                          type="email"
-                          placeholder="Ví dụ: an.nguyen@email.com"
-                          value={formData.customerEmail}
-                          onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
+                          type="text"
+                          placeholder="Ví dụ: PF3XYZ12 hoặc 5CD12345"
+                          className={autoFilled ? 'auto-filled-highlight' : ''}
+                          value={formData.serialNumber}
+                          onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
                         />
                       </div>
                       <div>
@@ -458,6 +853,18 @@ export function BookingSection({ selectedIssue = '' }: BookingSectionProps) {
                           className={autoFilled ? 'auto-filled-highlight' : ''}
                           value={formData.operatingSystem}
                           onChange={(e) => setFormData({ ...formData, operatingSystem: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row-2">
+                      <div>
+                        <label>Email liên hệ (Tùy chọn)</label>
+                        <input
+                          type="email"
+                          placeholder="Ví dụ: an.nguyen@email.com"
+                          value={formData.customerEmail}
+                          onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
                         />
                       </div>
                     </div>
