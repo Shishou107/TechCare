@@ -256,7 +256,7 @@ public class GhnShippingProvider : IShippingProvider
         return Task.FromResult($"https://dev-online-gateway.ghn.vn/shiip/public-api/v2/a5/gen-token?order_code={waybillCode}");
     }
 
-    public string MapProviderStatus(string providerStatus)
+    public static string MapStatus(string providerStatus)
     {
         if (string.IsNullOrWhiteSpace(providerStatus)) return "IN_TRANSIT";
         string s = providerStatus.Trim().ToLowerInvariant();
@@ -277,6 +277,8 @@ public class GhnShippingProvider : IShippingProvider
             _ => "IN_TRANSIT"
         };
     }
+
+    public string MapProviderStatus(string providerStatus) => MapStatus(providerStatus);
 
     public async Task<IReadOnlyList<GhnLocationItem>> GetProvincesAsync(CancellationToken ct = default)
     {

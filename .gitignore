@@ -1,6 +1,10 @@
 ## Visual Studio / .NET Core
 [Bb]in/
 [Oo]bj/
+bin_test/
+**/bin_test/
+obj_test/
+**/obj_test/
 .vs/
 *.user
 *.suo
@@ -33,3 +37,6 @@ appsettings.*.local.json
 !.env.example
 *.user
 
+
+TestOut/
+**/TestOut/
