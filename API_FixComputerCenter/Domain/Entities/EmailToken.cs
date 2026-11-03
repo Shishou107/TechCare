@@ -17,3 +17,4 @@ public class EmailToken
 
     public virtual User User { get; set; } = null!;
 }
+

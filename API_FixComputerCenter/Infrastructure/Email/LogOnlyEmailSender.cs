@@ -20,3 +20,4 @@ public class LogOnlyEmailSender : IEmailSender
         return Task.CompletedTask;
     }
 }
+
