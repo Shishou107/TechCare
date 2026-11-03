@@ -344,6 +344,7 @@ public static class ApiEndpoints
 
         // Map Shipping & Webhook Endpoints
         app.MapShippingEndpoints();
+        app.MapAiChatEndpoints();
 
         return app;
     }

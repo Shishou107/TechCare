@@ -9,6 +9,8 @@ using API_FixComputerCenter.Application.Features.Diagnostics;
 using API_FixComputerCenter.Application.Features.Inventory;
 using API_FixComputerCenter.Application.Features.Quotations;
 using API_FixComputerCenter.Application.Features.Repairs;
+using API_FixComputerCenter.Application.Features.AiChat;
+using API_FixComputerCenter.Application.Features.Knowledge;
 using API_FixComputerCenter.Application.Features.Shipping;
 using API_FixComputerCenter.Infrastructure.Persistence;
 using API_FixComputerCenter.Infrastructure.Services;
@@ -57,6 +59,9 @@ public static class DependencyInjection
         services.AddScoped<IShippingProvider, GhnShippingProvider>();
         services.AddScoped<IShippingService, ShippingService>();
         services.AddHostedService<ShipmentStatusSyncService>();
+        services.AddScoped<IEmbeddingService, EmbeddingService>();
+        services.AddScoped<IKnowledgeService, KnowledgeService>();
+        services.AddScoped<IAiChatService, AiChatService>();
 
         // 3. FluentValidation & MemoryCache
         services.AddMemoryCache();

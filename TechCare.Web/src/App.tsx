@@ -3,6 +3,7 @@ import { SYSTEM_NOTIFICATIONS } from './data/notifications'
 import { KindredCanvas } from './components/KindredCanvas'
 import { BookingSection } from './components/BookingSection'
 import { TrackingSection } from './components/TrackingSection'
+import { ChatWidget } from './components/ChatWidget'
 import './App.css'
 
 type TabType = 'home' | 'services' | 'pricing' | 'booking' | 'tracking'
@@ -824,6 +825,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Floating 24/7 AI Chatbot & RAG Widget */}
+      <ChatWidget />
     </div>
   )
 }
