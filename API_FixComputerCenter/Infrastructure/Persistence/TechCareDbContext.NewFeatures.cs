@@ -14,6 +14,8 @@ public partial class TechCareDbContext
     public virtual DbSet<ChatSession> ChatSessions { get; set; } = null!;
     public virtual DbSet<ChatMessage> ChatMessages { get; set; } = null!;
     public virtual DbSet<OtpCode> OtpCodes { get; set; } = null!;
+    public virtual DbSet<TechnicianProfile> TechnicianProfiles { get; set; } = null!;
+    public virtual DbSet<TicketRating> TicketRatings { get; set; } = null!;
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
@@ -191,6 +193,78 @@ public partial class TechCareDbContext
                 .WithMany()
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("FK_Customers_User")
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // 4. Technician Profiles & Ticket Ratings (Phase 5B)
+        modelBuilder.Entity<TechnicianProfile>(entity =>
+        {
+            entity.ToTable("TechnicianProfiles", "Security");
+            entity.HasKey(e => e.ProfileId);
+
+            entity.Property(e => e.DisplayName).HasMaxLength(150).IsRequired();
+            entity.Property(e => e.AvatarUrl).HasMaxLength(500);
+            entity.Property(e => e.Specialty).HasMaxLength(250).IsRequired();
+            entity.Property(e => e.Bio).HasMaxLength(1000);
+            entity.Property(e => e.ExperienceYears).HasDefaultValue(1);
+            entity.Property(e => e.IsPublic).HasDefaultValue(true);
+            entity.Property(e => e.IsAcceptingRequests).HasDefaultValue(true);
+            entity.Property(e => e.DisplayOrder).HasDefaultValue(0);
+            entity.Property(e => e.CreatedAtUtc).HasPrecision(0);
+            entity.Property(e => e.UpdatedAtUtc).HasPrecision(0);
+
+            entity.HasIndex(e => e.UserId, "UX_TechnicianProfiles_User").IsUnique();
+            entity.HasIndex(e => new { e.IsPublic, e.DisplayOrder, e.ProfileId }, "IX_TechProfile_PublicOrder");
+
+            entity.HasOne(d => d.User)
+                .WithOne(p => p.TechnicianProfile)
+                .HasForeignKey<TechnicianProfile>(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TicketRating>(entity =>
+        {
+            entity.ToTable("TicketRatings", "Repair");
+            entity.HasKey(e => e.RatingId);
+
+            entity.Property(e => e.Score).IsRequired();
+            entity.Property(e => e.Comment).HasMaxLength(1000);
+            entity.Property(e => e.CreatedAtUtc).HasPrecision(0);
+
+            entity.HasIndex(e => e.RepairTicketId, "UX_TicketRatings_Ticket").IsUnique();
+            entity.HasIndex(e => new { e.TechnicianUserId, e.Score }, "IX_Ratings_TechScore");
+
+            entity.HasOne(d => d.RepairTicket)
+                .WithOne(p => p.TicketRating)
+                .HasForeignKey<TicketRating>(d => d.RepairTicketId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(d => d.Customer)
+                .WithMany()
+                .HasForeignKey(d => d.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(d => d.TechnicianUser)
+                .WithMany()
+                .HasForeignKey(d => d.TechnicianUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Appointment>(entity =>
+        {
+            entity.HasOne(d => d.PreferredTechnicianUser)
+                .WithMany()
+                .HasForeignKey(d => d.PreferredTechnicianUserId)
+                .HasConstraintName("FK_Appt_PrefTech")
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<RepairTicket>(entity =>
+        {
+            entity.HasOne(d => d.PreferredTechnicianUser)
+                .WithMany()
+                .HasForeignKey(d => d.PreferredTechnicianUserId)
+                .HasConstraintName("FK_Ticket_PrefTech")
                 .OnDelete(DeleteBehavior.SetNull);
         });
     }

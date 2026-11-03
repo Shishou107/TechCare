@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace API_FixComputerCenter.Domain.Entities;
@@ -25,6 +25,8 @@ public partial class Appointment
 
     public long? CreatedByUserId { get; set; }
 
+    public long? PreferredTechnicianUserId { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
     public byte[] RowVersion { get; set; } = null!;
@@ -32,6 +34,8 @@ public partial class Appointment
     public virtual Branch Branch { get; set; } = null!;
 
     public virtual User? CreatedByUser { get; set; }
+
+    public virtual User? PreferredTechnicianUser { get; set; }
 
     public virtual Customer Customer { get; set; } = null!;
 

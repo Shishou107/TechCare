@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace API_FixComputerCenter.Domain.Entities;
@@ -43,6 +43,8 @@ public partial class RepairTicket
 
     public long? AssignedTechnicianUserId { get; set; }
 
+    public long? PreferredTechnicianUserId { get; set; }
+
     public long? CreatedByUserId { get; set; }
 
     public DateTime? ClosedAtUtc { get; set; }
@@ -56,6 +58,10 @@ public partial class RepairTicket
     public virtual Appointment? Appointment { get; set; }
 
     public virtual User? AssignedTechnicianUser { get; set; }
+
+    public virtual User? PreferredTechnicianUser { get; set; }
+
+    public virtual TicketRating? TicketRating { get; set; }
 
     public virtual Branch Branch { get; set; } = null!;
 

@@ -46,6 +46,13 @@ interface TicketInfo {
   scheduledAt: string
   issue: string
   shipment?: ShipmentTrackingDto | null
+  repairTicketId?: number
+  technicianName?: string
+  technicianAvatarUrl?: string
+  technicianSpecialty?: string
+  ratingScore?: number
+  ratingComment?: string
+  preferredTechnicianName?: string
 }
 
 interface TrackingSectionProps {
@@ -193,6 +200,10 @@ export function TrackingSection({ initialCode = '', initialPhone = '', autoSearc
   const [loading, setLoading] = useState(false)
   const [ticket, setTicket] = useState<TicketInfo | null>(null)
   const [searched, setSearched] = useState(false)
+  const [ratingScoreInput, setRatingScoreInput] = useState(5)
+  const [ratingCommentInput, setRatingCommentInput] = useState('')
+  const [ratingSubmitting, setRatingSubmitting] = useState(false)
+  const [ratingSubmitted, setRatingSubmitted] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const executeLookup = useCallback(async (searchCode: string, searchPhone: string) => {
@@ -251,6 +262,34 @@ export function TrackingSection({ initialCode = '', initialPhone = '', autoSearc
       executeLookup(initialCode, initialPhone)
     }
   }, [initialCode, initialPhone, autoSearch, executeLookup])
+
+  const handleSubmitRating = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!ticket?.repairTicketId || !phone) return
+    setRatingSubmitting(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/repairs/${ticket.repairTicketId}/rating`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: phone.trim(),
+          score: ratingScoreInput,
+          comment: ratingCommentInput.trim(),
+        }),
+      })
+      if (res.ok) {
+        setRatingSubmitted(true)
+        setTicket({ ...ticket, ratingScore: ratingScoreInput, ratingComment: ratingCommentInput.trim() })
+      } else {
+        const err = await res.json().catch(() => null)
+        alert(err?.message || 'Không thể gửi đánh giá.')
+      }
+    } catch {
+      alert('Lỗi kết nối khi gửi đánh giá.')
+    } finally {
+      setRatingSubmitting(false)
+    }
+  }
 
   const handleLookup = (e: React.FormEvent) => {
     e.preventDefault()
@@ -364,6 +403,90 @@ export function TrackingSection({ initialCode = '', initialPhone = '', autoSearc
               ))}
             </div>
           </div>
+
+          {/* Card Kỹ thuật viên phụ trách (Phase 5B) */}
+          {ticket.technicianName && (
+            <div style={{ background: '#fafafa', border: '1px solid var(--line)', borderRadius: '10px', padding: '18px 20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <img
+                  src={ticket.technicianAvatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
+                  alt={ticket.technicianName}
+                  style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }}
+                />
+                <div>
+                  <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--sub)', fontWeight: 600 }}>KỸ THUẬT VIÊN PHỤ TRÁCH MÁY CỦA BẠN</div>
+                  <h4 style={{ fontSize: '15px', fontWeight: 600, margin: '2px 0' }}>{ticket.technicianName}</h4>
+                  <div style={{ fontSize: '12px', color: 'var(--sub)' }}>{ticket.technicianSpecialty || 'Chuyên gia phần cứng TechCare'}</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  style={{ fontSize: '12.5px', padding: '7px 14px' }}
+                  onClick={() => {
+                    const chatBtn = document.querySelector('.chat-trigger-btn') as HTMLElement
+                    if (chatBtn) chatBtn.click()
+                  }}
+                >
+                  Nhắn hỗ trợ về máy này
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Rating Block for Completed / Returned Tickets (Phase 5B) */}
+          {(ticket.status === 'COMPLETED' || ticket.status === 'RETURNED' || ticket.status === 'READY') && (
+            <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '10px', padding: '20px', marginBottom: '24px' }}>
+              <div className="eyebrow" style={{ textAlign: 'left', marginBottom: '4px' }}>ĐÁNH GIÁ CHẤT LƯỢNG SỬA CHỮA</div>
+              {ticket.ratingScore || ratingSubmitted ? (
+                <div>
+                  <div style={{ fontSize: '16px', color: '#eab308', marginBottom: '6px' }}>
+                    {'★'.repeat(ticket.ratingScore || ratingScoreInput)}{'☆'.repeat(5 - (ticket.ratingScore || ratingScoreInput))}
+                  </div>
+                  <p style={{ fontSize: '13px', color: 'var(--ink)', margin: 0 }}>
+                    {ticket.ratingComment || ratingCommentInput || 'Đã gửi đánh giá.'}
+                  </p>
+                  <span style={{ fontSize: '11.5px', color: 'var(--sub)', marginTop: '4px', display: 'block' }}>
+                    ✓ Bạn đã gửi đánh giá cho dịch vụ này. Cảm ơn phản hồi quý báu của bạn!
+                  </span>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmitRating}>
+                  <p style={{ fontSize: '13px', color: 'var(--sub)', marginBottom: '10px' }}>
+                    Thiết bị của bạn đã được kiểm chuẩn hoàn tất. Hãy cho TechCare biết mức độ hài lòng của bạn:
+                  </p>
+                  <div style={{ display: 'flex', gap: '8px', fontSize: '24px', cursor: 'pointer', marginBottom: '12px' }}>
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <span
+                        key={s}
+                        onClick={() => setRatingScoreInput(s)}
+                        style={{ color: s <= ratingScoreInput ? '#eab308' : '#d1d5db', transition: 'color 0.15s' }}
+                      >
+                        ★
+                      </span>
+                    ))}
+                    <span style={{ fontSize: '13px', color: 'var(--sub)', alignSelf: 'center', marginLeft: '6px' }}>
+                      ({ratingScoreInput} / 5 sao)
+                    </span>
+                  </div>
+
+                  <textarea
+                    placeholder="Nhận xét của bạn về tay nghề kỹ thuật và sự nhiệt tình của nhân viên..."
+                    value={ratingCommentInput}
+                    onChange={(e) => setRatingCommentInput(e.target.value)}
+                    rows={2}
+                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--line)', fontSize: '13px', marginBottom: '10px' }}
+                  />
+
+                  <button type="submit" className="button" style={{ padding: '8px 18px', fontSize: '13px' }} disabled={ratingSubmitting}>
+                    {ratingSubmitting ? 'Đang gửi...' : 'Gửi đánh giá dịch vụ'} <span>→</span>
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
 
           {/* Real Courier Transport Route & Events (GHN Integration) */}
           {ticket.shipment ? (

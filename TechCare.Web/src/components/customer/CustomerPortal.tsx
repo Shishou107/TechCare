@@ -100,6 +100,10 @@ export function CustomerPortal({ user, onLogout }: CustomerPortalProps) {
   const [editEmail, setEditEmail] = useState('')
   const [editAddress, setEditAddress] = useState('')
   const [saveProfileSuccess, setSaveProfileSuccess] = useState(false)
+  const [ratingScoreInput, setRatingScoreInput] = useState(5)
+  const [ratingCommentInput, setRatingCommentInput] = useState('')
+  const [ratingSubmitting, setRatingSubmitting] = useState(false)
+  const [ratingSuccessMsg, setRatingSuccessMsg] = useState<string | null>(null)
 
   useEffect(() => {
     loadCustomerData()
@@ -164,6 +168,42 @@ export function CustomerPortal({ user, onLogout }: CustomerPortalProps) {
       // fallback
     } finally {
       setDetailLoading(false)
+    }
+  }
+
+  const handleSubmitCustomerRating = async (ticketId: number) => {
+    setRatingSubmitting(true)
+    const token = user.token || localStorage.getItem('tc_token')
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/customer/tickets/${ticketId}/rating`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          score: ratingScoreInput,
+          comment: ratingCommentInput.trim(),
+        }),
+      })
+      if (res.ok) {
+        setRatingSuccessMsg('✓ Cảm ơn bạn đã gửi đánh giá chất lượng sửa chữa!')
+        setTicketDetail({
+          ...ticketDetail,
+          rating: {
+            score: ratingScoreInput,
+            comment: ratingCommentInput.trim(),
+            createdAtUtc: new Date().toISOString(),
+          },
+        })
+      } else {
+        const err = await res.json().catch(() => null)
+        alert(err?.message || 'Không thể gửi đánh giá.')
+      }
+    } catch {
+      alert('Lỗi kết nối khi gửi đánh giá.')
+    } finally {
+      setRatingSubmitting(false)
     }
   }
 
@@ -373,8 +413,107 @@ export function CustomerPortal({ user, onLogout }: CustomerPortalProps) {
                   <div>Tình trạng tiếp nhận: <strong>{ticketDetail.initialCondition || 'Bình thường'}</strong></div>
                   <div>Phí kiểm tra: <strong>{formatCurrency(ticketDetail.inspectionFee)}</strong></div>
                   <div>Kỹ thuật viên phụ trách: <strong>{ticketDetail.assignedTechnician?.userName || 'Đang sắp xếp'}</strong></div>
+                  {ticketDetail.preferredTechnician && (
+                    <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--sub)' }}>
+                      Nguyện vọng chọn: <strong>{ticketDetail.preferredTechnician.userName}</strong>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* Technician Public Profile Card */}
+              {ticketDetail.assignedTechnician && (
+                <div style={{ background: '#fafafa', border: '1px solid var(--line)', borderRadius: '10px', padding: '16px 20px', marginTop: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <img
+                      src={ticketDetail.assignedTechnician.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
+                      alt={ticketDetail.assignedTechnician.userName}
+                      style={{ width: '46px', height: '46px', borderRadius: '50%', objectFit: 'cover' }}
+                    />
+                    <div>
+                      <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--sub)', fontWeight: 600 }}>KỸ THUẬT VIÊN PHỤ TRÁCH MÁY CỦA BẠN</div>
+                      <h4 style={{ fontSize: '15px', fontWeight: 600, margin: '2px 0' }}>{ticketDetail.assignedTechnician.userName}</h4>
+                      <div style={{ fontSize: '12px', color: 'var(--sub)' }}>{ticketDetail.assignedTechnician.specialty || 'Chuyên gia phần cứng TechCare'}</div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      style={{ fontSize: '12px', padding: '7px 14px' }}
+                      onClick={() => {
+                        const chatBtn = document.querySelector('.chat-trigger-btn') as HTMLElement
+                        if (chatBtn) chatBtn.click()
+                      }}
+                    >
+                      Nhắn hỗ trợ về máy này
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Post-Repair Rating Block */}
+              {(ticketDetail.statusCode === 'COMPLETED' || ticketDetail.statusCode === 'RETURNED') && (
+                <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '10px', padding: '18px 20px', marginTop: '18px' }}>
+                  <div className="eyebrow" style={{ textAlign: 'left', marginBottom: '4px' }}>ĐÁNH GIÁ CHẤT LƯỢNG SỬA CHỮA</div>
+                  {ticketDetail.rating ? (
+                    <div>
+                      <div style={{ fontSize: '16px', color: '#eab308', marginBottom: '6px' }}>
+                        {'★'.repeat(ticketDetail.rating.score)}{'☆'.repeat(5 - ticketDetail.rating.score)}
+                      </div>
+                      <p style={{ fontSize: '13px', margin: 0 }}>
+                        {ticketDetail.rating.comment || 'Khách hàng không để lại nhận xét.'}
+                      </p>
+                      <span style={{ fontSize: '11.5px', color: 'var(--sub)', marginTop: '4px', display: 'block' }}>
+                        ✓ Bạn đã đánh giá dịch vụ này vào {new Date(ticketDetail.rating.createdAtUtc).toLocaleDateString('vi-VN')}.
+                      </span>
+                    </div>
+                  ) : (
+                    <div>
+                      {ratingSuccessMsg ? (
+                        <div style={{ color: '#065f46', fontSize: '13px' }}>{ratingSuccessMsg}</div>
+                      ) : (
+                        <div>
+                          <p style={{ fontSize: '13px', color: 'var(--sub)', marginBottom: '8px' }}>
+                            Phiếu sửa chữa đã hoàn thành. Hãy cho TechCare biết mức độ hài lòng của bạn:
+                          </p>
+                          <div style={{ display: 'flex', gap: '6px', fontSize: '22px', cursor: 'pointer', marginBottom: '10px' }}>
+                            {[1, 2, 3, 4, 5].map((s) => (
+                              <span
+                                key={s}
+                                onClick={() => setRatingScoreInput(s)}
+                                style={{ color: s <= ratingScoreInput ? '#eab308' : '#d1d5db' }}
+                              >
+                                ★
+                              </span>
+                            ))}
+                            <span style={{ fontSize: '12.5px', color: 'var(--sub)', alignSelf: 'center', marginLeft: '6px' }}>
+                              ({ratingScoreInput} / 5 sao)
+                            </span>
+                          </div>
+                          <textarea
+                            placeholder="Nhận xét chất lượng sửa chữa (Tùy chọn)..."
+                            value={ratingCommentInput}
+                            onChange={(e) => setRatingCommentInput(e.target.value)}
+                            rows={2}
+                            style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--line)', fontSize: '13px', marginBottom: '8px' }}
+                          />
+                          <button
+                            type="button"
+                            className="button"
+                            style={{ padding: '8px 16px', fontSize: '13px' }}
+                            onClick={() => handleSubmitCustomerRating(ticketDetail.repairTicketId)}
+                            disabled={ratingSubmitting}
+                          >
+                            {ratingSubmitting ? 'Đang gửi...' : 'Gửi đánh giá'} <span>→</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Waybill / Shipping Timeline if available */}
               {ticketDetail.shipments && ticketDetail.shipments.length > 0 && (

@@ -92,4 +92,6 @@ public partial class User
     public virtual ICollection<UserRole> UserRoleUsers { get; set; } = new List<UserRole>();
 
     public virtual ICollection<WarrantyClaim> WarrantyClaims { get; set; } = new List<WarrantyClaim>();
+
+    public virtual TechnicianProfile? TechnicianProfile { get; set; }
 }

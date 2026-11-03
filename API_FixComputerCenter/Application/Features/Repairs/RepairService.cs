@@ -30,7 +30,13 @@ public record RepairTicketDto(
     string? InitialCondition,
     string? Accessories,
     string Status,
-    string? TrackingCode = null
+string? TrackingCode = null,
+    string? TechnicianAvatarUrl = null,
+    string? TechnicianSpecialty = null,
+    int? RatingScore = null,
+    string? RatingComment = null,
+    long? PreferredTechnicianUserId = null,
+    string? PreferredTechnicianName = null
 );
 
 public class CreateRepairTicketRequest
@@ -367,13 +373,20 @@ public class RepairService : IRepairService
         var cleanCode = code.Trim().ToUpperInvariant();
         var cleanPhone = phone.Trim();
 
-        var ticket = await _db.RepairTickets.AsNoTracking()
+var ticket = await _db.RepairTickets.AsNoTracking()
             .Include(t => t.Customer)
             .Include(t => t.Device)
+            .Include(t => t.AssignedTechnicianUser)
+                .ThenInclude(u => u!.TechnicianProfile)
+            .Include(t => t.PreferredTechnicianUser)
+            .Include(t => t.TicketRating)
             .FirstOrDefaultAsync(t => (t.TicketCode == cleanCode || t.Appointment != null && t.Appointment.AppointmentCode == cleanCode)
                 && t.Customer != null && t.Customer.Phone == cleanPhone, ct);
 
         if (ticket == null) return null;
+
+        var techProfile = ticket.AssignedTechnicianUser?.TechnicianProfile;
+        var techName = techProfile?.DisplayName ?? ticket.AssignedTechnicianUser?.UserName;
 
         return new RepairTicketDto(
             ticket.RepairTicketId,
@@ -385,9 +398,9 @@ public class RepairService : IRepairService
             ticket.DeviceId,
             ticket.Device?.ModelName ?? "",
             ticket.Device?.SerialNumber,
-            null,
-            null,
-            null,
+            ticket.CreatedByUserId,
+            ticket.AssignedTechnicianUserId,
+            techName,
             ticket.ReceivedAtUtc,
             ticket.ExpectedCompletionAtUtc,
             ticket.ActualCompletionAtUtc,
@@ -395,7 +408,13 @@ public class RepairService : IRepairService
             ticket.InitialCondition,
             ticket.Accessories,
             ticket.Status,
-            null
+            null,
+            techProfile?.AvatarUrl,
+            techProfile?.Specialty,
+            ticket.TicketRating?.Score,
+            ticket.TicketRating?.Comment,
+            ticket.PreferredTechnicianUserId,
+            ticket.PreferredTechnicianUser?.UserName
         );
     }
 }

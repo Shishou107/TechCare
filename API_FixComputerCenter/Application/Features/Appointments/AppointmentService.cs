@@ -20,7 +20,8 @@ public record AppointmentDto(
     string Subject,
     string? CustomerDescription,
     string Status,
-    DateTime CreatedAtUtc
+    DateTime CreatedAtUtc,
+    long? PreferredTechnicianUserId = null
 );
 
 public class BookAppointmentRequest
@@ -38,6 +39,7 @@ public class BookAppointmentRequest
     public string? RamModulesJson { get; set; }
     public string IssueDescription { get; set; } = string.Empty;
     public DateTime? ScheduledAtUtc { get; set; }
+    public long? PreferredTechnicianUserId { get; set; }
 }
 
 public class BookAppointmentValidator : AbstractValidator<BookAppointmentRequest>
@@ -174,6 +176,7 @@ public class AppointmentService : IAppointmentService
             CustomerDescription = req.IssueDescription.Trim(),
             Status = "BOOKED",
             CreatedByUserId = _currentUser.UserId,
+            PreferredTechnicianUserId = req.PreferredTechnicianUserId,
             CreatedAtUtc = DateTime.UtcNow
         };
 

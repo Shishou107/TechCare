@@ -13,8 +13,12 @@ using API_FixComputerCenter.Application.Features.Repairs;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
+using API_FixComputerCenter.Domain.Entities;
 
 namespace API_FixComputerCenter.Endpoints;
+
+public record GuestRatingRequest(string Phone, int Score, string? Comment);
 
 public static class ApiEndpoints
 {
@@ -214,6 +218,18 @@ public static class ApiEndpoints
         var apptGroup = app.MapGroup("/api/v1/appointments").WithTags("Appointments");
 
         // Public booking for customers on website
+        apptGroup.MapPost("/book", async (BookAppointmentRequest req, IAppointmentService svc) =>
+        {
+            var result = await svc.BookAppointmentAsync(req);
+            return Results.Ok(new
+            {
+                success = true,
+                appointmentCode = result.AppointmentCode,
+                message = "Đặt lịch sửa chữa thành công!",
+                data = result
+            });
+        }).WithValidation<BookAppointmentRequest>();
+
         apptGroup.MapPost("/submit", async (BookAppointmentRequest req, IAppointmentService svc) =>
         {
             var result = await svc.BookAppointmentAsync(req);
@@ -334,6 +350,50 @@ public static class ApiEndpoints
 
         // 8. QUOTATIONS (Protected - Granular permissions)
         var quoteGroup = app.MapGroup("/api/v1/quotations").WithTags("Quotations");
+                repairGroup.MapPost("/{ticketId:long}/rating", async (long ticketId, GuestRatingRequest req, ITechCareDbContext db) =>
+        {
+            if (req.Score < 1 || req.Score > 5)
+                return Results.BadRequest(new { message = "Điểm đánh giá phải từ 1 đến 5 sao." });
+
+            if (string.IsNullOrWhiteSpace(req.Phone))
+                return Results.BadRequest(new { message = "Vui lòng cung cấp số điện thoại chủ phiếu." });
+
+            var cleanPhone = req.Phone.Trim();
+            var ticket = await db.RepairTickets
+                .Include(t => t.Customer)
+                .Include(t => t.TicketRating)
+                .FirstOrDefaultAsync(t => t.RepairTicketId == ticketId);
+
+            if (ticket == null || ticket.Customer == null)
+                return Results.NotFound(new { message = "Không tìm thấy phiếu sửa chữa." });
+
+            if (ticket.Customer.Phone != cleanPhone)
+                return Results.Forbid();
+
+            if (ticket.Status != "COMPLETED" && ticket.Status != "RETURNED")
+                return Results.BadRequest(new { message = "Chỉ có thể đánh giá phiếu sửa chữa khi máy đã hoàn thành hoặc đã trả về." });
+
+            if (!ticket.AssignedTechnicianUserId.HasValue)
+                return Results.BadRequest(new { message = "Phiếu sửa chữa chưa được phân công kỹ thuật viên." });
+
+            if (ticket.TicketRating != null || await db.TicketRatings.AnyAsync(r => r.RepairTicketId == ticketId))
+                return Results.BadRequest(new { message = "Phiếu sửa chữa này đã được đánh giá trước đó." });
+
+            var rating = new TicketRating
+            {
+                RepairTicketId = ticketId,
+                CustomerId = ticket.CustomerId,
+                TechnicianUserId = ticket.AssignedTechnicianUserId.Value,
+                Score = req.Score,
+                Comment = req.Comment?.Trim(),
+                CreatedAtUtc = DateTime.UtcNow
+            };
+            db.TicketRatings.Add(rating);
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new { success = true, ratingId = rating.RatingId, message = "Cảm ơn bạn đã gửi đánh giá!" });
+        });
+
         quoteGroup.MapGet("/{id:long}", async (long id, IQuotationService svc) =>
         {
             var result = await svc.GetByIdAsync(id);
@@ -370,6 +430,7 @@ public static class ApiEndpoints
         app.MapShippingEndpoints();
         app.MapAiChatEndpoints();
         app.MapCustomerEndpoints();
+        app.MapTechnicianEndpoints();
 
         return app;
     }

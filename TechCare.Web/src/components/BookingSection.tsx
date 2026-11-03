@@ -13,6 +13,21 @@ export interface RamModuleInfo {
   capacityGB?: number
 }
 
+export interface PublicTechnician {
+  profileId: number
+  userId: number
+  displayName: string
+  avatarUrl?: string
+  specialty: string
+  bio?: string
+  experienceYears: number
+  isAcceptingRequests: boolean
+  displayOrder: number
+  ratingAverage: number
+  ratingCount: number
+  completedTicketsCount: number
+}
+
 export interface HardwareSpecs {
   sessionCode?: string
   manufacturer: string
@@ -54,6 +69,15 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
   const [autoFilled, setAutoFilled] = useState(false)
   const [showManualSpecs, setShowManualSpecs] = useState(false)
   const [scanTimestamp, setScanTimestamp] = useState<string | null>(null)
+  const [technicians, setTechnicians] = useState<PublicTechnician[]>([])
+  const [selectedTechId, setSelectedTechId] = useState<number | null>(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/v1/technicians/public`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: PublicTechnician[]) => setTechnicians(data))
+      .catch(() => {})
+  }, [])
 
   const [formData, setFormData] = useState({
     customerName: '',
@@ -251,6 +275,7 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
         diskSerialsJson: formData.diskSerials && formData.diskSerials.length > 0 ? JSON.stringify(formData.diskSerials) : null,
         ramModulesJson: formData.ramModules && formData.ramModules.length > 0 ? JSON.stringify(formData.ramModules) : null,
         issueDescription: `[${servicePrefix}] ${formData.issueDescription.trim()}${courierNotes}`,
+        preferredTechnicianUserId: selectedTechId,
       }
 
       const res = await fetch(`${API_BASE_URL}/api/v1/appointments/book`, {
@@ -638,6 +663,78 @@ export function BookingSection({ selectedIssue = '', onNavigateToTracking }: Boo
                     {submitResult.msg}
                   </div>
                 )}
+
+                {/* PREFERRED TECHNICIAN SELECTION (Phase 5B) */}
+                <div style={{ marginTop: '20px', marginBottom: '18px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>
+                    Kỹ thuật viên yêu cầu (Tùy chọn)
+                  </label>
+                  <p style={{ fontSize: '12px', color: 'var(--sub)', margin: '0 0 10px 0' }}>
+                    Chọn chuyên gia sửa chữa máy của bạn. Đây là nguyện vọng — nếu kỹ thuật viên bận, lễ tân sẽ sắp xếp nhân sự có chuyên môn tương đương.
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '10px' }}>
+                    {/* Default Option: Để TechCare sắp xếp */}
+                    <div
+                      onClick={() => setSelectedTechId(null)}
+                      style={{
+                        border: selectedTechId === null ? '2px solid var(--ink)' : '1px solid var(--line)',
+                        borderRadius: '8px',
+                        padding: '12px 14px',
+                        cursor: 'pointer',
+                        background: selectedTechId === null ? '#fafafa' : '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                      }}
+                    >
+                      <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>
+                        ⚙️
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '13px' }}>Để TechCare sắp xếp</div>
+                        <div style={{ fontSize: '11px', color: 'var(--sub)' }}>Ưu tiên nhận máy nhanh nhất</div>
+                      </div>
+                    </div>
+
+                    {/* Available Technicians */}
+                    {technicians.map((tech) => (
+                      <div
+                        key={tech.userId}
+                        onClick={() => setSelectedTechId(tech.userId)}
+                        style={{
+                          border: selectedTechId === tech.userId ? '2px solid var(--ink)' : '1px solid var(--line)',
+                          borderRadius: '8px',
+                          padding: '12px 14px',
+                          cursor: 'pointer',
+                          background: selectedTechId === tech.userId ? '#fafafa' : '#fff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          opacity: tech.isAcceptingRequests ? 1 : 0.6
+                        }}
+                      >
+                        <img
+                          src={tech.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
+                          alt={tech.displayName}
+                          style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover' }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tech.displayName}</span>
+                            <span style={{ fontSize: '11px', color: '#eab308' }}>★ {tech.ratingAverage}</span>
+                          </div>
+                          <div style={{ fontSize: '11.5px', color: 'var(--sub)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {tech.specialty}
+                          </div>
+                          <div style={{ fontSize: '10.5px', color: '#666', marginTop: '2px' }}>
+                            {tech.experienceYears} năm KN · {tech.completedTicketsCount} ca xong
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 {/* SUBMIT BUTTON */}
                 <div style={{ marginTop: '6px' }}>

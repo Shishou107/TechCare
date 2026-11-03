@@ -11,6 +11,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace API_FixComputerCenter.Endpoints;
 
+public record SubmitTicketRatingRequest(int Score, string? Comment);
+
 public record UpdateCustomerProfileRequest(
     string? FullName,
     string? Email,
@@ -140,7 +142,14 @@ public static class CustomerEndpoints
                     AssignedTechnician = t.AssignedTechnicianUser != null ? new
                     {
                         t.AssignedTechnicianUser.UserId,
-                        t.AssignedTechnicianUser.UserName
+                        UserName = t.AssignedTechnicianUser.TechnicianProfile != null ? t.AssignedTechnicianUser.TechnicianProfile.DisplayName : t.AssignedTechnicianUser.UserName,
+                        AvatarUrl = t.AssignedTechnicianUser.TechnicianProfile != null ? t.AssignedTechnicianUser.TechnicianProfile.AvatarUrl : null,
+                        Specialty = t.AssignedTechnicianUser.TechnicianProfile != null ? t.AssignedTechnicianUser.TechnicianProfile.Specialty : null
+                    } : null,
+                    PreferredTechnician = t.PreferredTechnicianUser != null ? new
+                    {
+                        t.PreferredTechnicianUser.UserId,
+                        t.PreferredTechnicianUser.UserName
                     } : null
                 })
                 .ToListAsync();
@@ -157,6 +166,9 @@ public static class CustomerEndpoints
             var ticket = await db.RepairTickets.AsNoTracking()
                 .Include(t => t.Device)
                 .Include(t => t.AssignedTechnicianUser)
+                    .ThenInclude(u => u!.TechnicianProfile)
+                .Include(t => t.PreferredTechnicianUser)
+                .Include(t => t.TicketRating)
                 .FirstOrDefaultAsync(t => t.RepairTicketId == ticketId);
 
             if (ticket == null)
@@ -203,7 +215,22 @@ public static class CustomerEndpoints
                 AssignedTechnician = ticket.AssignedTechnicianUser != null ? new
                 {
                     ticket.AssignedTechnicianUser.UserId,
-                    ticket.AssignedTechnicianUser.UserName
+                    UserName = ticket.AssignedTechnicianUser.TechnicianProfile != null ? ticket.AssignedTechnicianUser.TechnicianProfile.DisplayName : ticket.AssignedTechnicianUser.UserName,
+                    AvatarUrl = ticket.AssignedTechnicianUser.TechnicianProfile != null ? ticket.AssignedTechnicianUser.TechnicianProfile.AvatarUrl : null,
+                    Specialty = ticket.AssignedTechnicianUser.TechnicianProfile != null ? ticket.AssignedTechnicianUser.TechnicianProfile.Specialty : null,
+                    ExperienceYears = ticket.AssignedTechnicianUser.TechnicianProfile != null ? (int?)ticket.AssignedTechnicianUser.TechnicianProfile.ExperienceYears : null
+                } : null,
+                PreferredTechnician = ticket.PreferredTechnicianUser != null ? new
+                {
+                    ticket.PreferredTechnicianUser.UserId,
+                    ticket.PreferredTechnicianUser.UserName
+                } : null,
+                Rating = ticket.TicketRating != null ? new
+                {
+                    ticket.TicketRating.RatingId,
+                    ticket.TicketRating.Score,
+                    ticket.TicketRating.Comment,
+                    ticket.TicketRating.CreatedAtUtc
                 } : null,
                 Shipments = shipments.Select(s => new
                 {
@@ -225,6 +252,70 @@ public static class CustomerEndpoints
                         e.OccurredAtUtc
                     })
                 })
+            });
+        });
+
+        // 4b. Submit Rating for Completed Ticket
+        group.MapPost("/tickets/{ticketId:long}/rating", async (long ticketId, SubmitTicketRatingRequest req, HttpContext ctx, ITechCareDbContext db, ICurrentUserService current) =>
+        {
+            if (req.Score < 1 || req.Score > 5)
+            {
+                return Results.BadRequest(new { message = "Điểm đánh giá phải từ 1 đến 5 sao." });
+            }
+
+            var (customer, error) = await ResolveCurrentCustomerAsync(ctx, db, current);
+            if (error != null) return error;
+
+            var ticket = await db.RepairTickets
+                .Include(t => t.TicketRating)
+                .FirstOrDefaultAsync(t => t.RepairTicketId == ticketId);
+
+            if (ticket == null)
+            {
+                return Results.NotFound(new { message = "Không tìm thấy phiếu sửa chữa." });
+            }
+
+            // CRITICAL OWNERSHIP CHECK: Only ticket owner can rate
+            if (ticket.CustomerId != customer!.CustomerId)
+            {
+                return Results.Forbid();
+            }
+
+            // Status check: Only COMPLETED or RETURNED
+            if (ticket.Status != "COMPLETED" && ticket.Status != "RETURNED")
+            {
+                return Results.BadRequest(new { message = "Chỉ có thể đánh giá phiếu sửa chữa khi máy đã hoàn thành hoặc đã trả về." });
+            }
+
+            if (!ticket.AssignedTechnicianUserId.HasValue)
+            {
+                return Results.BadRequest(new { message = "Phiếu sửa chữa chưa được phân công kỹ thuật viên." });
+            }
+
+            // Double rating check: Only 1 rating allowed
+            if (ticket.TicketRating != null || await db.TicketRatings.AnyAsync(r => r.RepairTicketId == ticketId))
+            {
+                return Results.BadRequest(new { message = "Phiếu sửa chữa này đã được đánh giá trước đó." });
+            }
+
+            var rating = new TicketRating
+            {
+                RepairTicketId = ticketId,
+                CustomerId = customer.CustomerId,
+                TechnicianUserId = ticket.AssignedTechnicianUserId.Value,
+                Score = req.Score,
+                Comment = req.Comment?.Trim(),
+                CreatedAtUtc = DateTime.UtcNow
+            };
+
+            db.TicketRatings.Add(rating);
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                success = true,
+                ratingId = rating.RatingId,
+                message = "Cảm ơn bạn đã gửi đánh giá chất lượng sửa chữa!"
             });
         });
 
