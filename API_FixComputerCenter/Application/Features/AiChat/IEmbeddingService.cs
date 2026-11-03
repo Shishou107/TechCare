@@ -13,6 +13,8 @@ namespace API_FixComputerCenter.Application.Features.AiChat;
 
 public interface IEmbeddingService
 {
+    string CurrentModelName { get; }
+    int ExpectedDimension { get; }
     Task<float[]> GenerateEmbeddingAsync(string text, CancellationToken ct = default);
     byte[] VectorToBytes(float[] vector);
     float[] BytesToVector(byte[] bytes);
@@ -27,6 +29,9 @@ public class EmbeddingService : IEmbeddingService
     private readonly string? _apiKey;
     private readonly string _endpoint;
     private readonly string _model;
+
+    public string CurrentModelName => !string.IsNullOrWhiteSpace(_apiKey) ? _model : "local-hash-v2";
+    public int ExpectedDimension => !string.IsNullOrWhiteSpace(_apiKey) ? 1536 : 128;
 
     public EmbeddingService(HttpClient http, IConfiguration config, ILogger<EmbeddingService> logger)
     {
@@ -96,6 +101,20 @@ public class EmbeddingService : IEmbeddingService
         return GenerateLocalSemanticVector(text);
     }
 
+    public static uint ComputeFnv1aHash(string text)
+    {
+        const uint offsetBasis = 2166136261u;
+        const uint fnvPrime = 16777619u;
+
+        uint hash = offsetBasis;
+        var bytes = Encoding.UTF8.GetBytes(text);
+        foreach (var b in bytes)
+        {
+            hash = (hash ^ b) * fnvPrime;
+        }
+        return hash;
+    }
+
     private static float[] GenerateLocalSemanticVector(string text)
     {
         const int dims = 128;
@@ -105,7 +124,7 @@ public class EmbeddingService : IEmbeddingService
 
         foreach (var t in tokens)
         {
-            var hash = (uint)t.GetHashCode();
+            var hash = ComputeFnv1aHash(t);
             int idx = (int)(hash % dims);
             vector[idx] += 1.0f;
             int idx2 = (int)((hash / dims) % dims);

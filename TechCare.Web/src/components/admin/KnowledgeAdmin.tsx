@@ -24,6 +24,7 @@ export function KnowledgeAdmin() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ title: '', category: 'BẢNG GIÁ', rawContent: '' })
   const [submitting, setSubmitting] = useState(false)
+  const [reembedding, setReembedding] = useState(false)
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null)
   const [aiStatus, setAiStatus] = useState<KnowledgeStatus | null>(null)
 
@@ -109,6 +110,31 @@ export function KnowledgeAdmin() {
     }
   }
 
+  const handleReembedAll = async () => {
+    if (!window.confirm('Bạn có chắc chắn muốn nhúng lại toàn bộ tri thức bằng mô hình vector hiện tại? Thao tác này sẽ phân đoạn lại tất cả tài liệu đang hoạt động.')) return
+
+    setReembedding(true)
+    setMsg(null)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/admin/knowledge/reembed`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setMsg({ text: data.message || 'Đã nhúng lại toàn bộ cơ sở tri thức thành công!' })
+        fetchDocs()
+      } else {
+        const err = await res.json().catch(() => null)
+        setMsg({ text: err?.message || 'Lỗi khi nhúng lại tri thức.', error: true })
+      }
+    } catch {
+      setMsg({ text: 'Lỗi kết nối máy chủ.', error: true })
+    } finally {
+      setReembedding(false)
+    }
+  }
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
@@ -138,13 +164,25 @@ export function KnowledgeAdmin() {
             Tài liệu nạp vào đây sẽ tự động phân mảnh (~600 từ, trượt 80 từ) và sinh Vector Embedding phục vụ trả lời khách hàng.
           </p>
         </div>
-        <button
-          type="button"
-          className="button"
-          onClick={() => setShowForm(!showForm)}
-        >
-          {showForm ? 'Đóng biểu mẫu' : '+ Thêm tài liệu mới'}
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="button"
+            style={{ background: '#f4f4f2', color: '#111', border: '1px solid #d4d4d0' }}
+            disabled={reembedding}
+            onClick={handleReembedAll}
+            title="Tính toán lại vector embedding cho tất cả tài liệu bằng mô hình hiện tại"
+          >
+            {reembedding ? 'Đang nhúng lại...' : 'Nhúng lại toàn bộ'}
+          </button>
+          <button
+            type="button"
+            className="button"
+            onClick={() => setShowForm(!showForm)}
+          >
+            {showForm ? 'Đóng biểu mẫu' : '+ Thêm tài liệu mới'}
+          </button>
+        </div>
       </div>
 
       {msg && (

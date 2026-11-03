@@ -57,6 +57,12 @@ public static class AiChatEndpoints
             });
         }).RequireAuthorization("Permission:AI.KB.MANAGE");
 
+        kbGroup.MapPost("/reembed", async (IKnowledgeService svc) =>
+        {
+            var count = await svc.ReembedAllAsync();
+            return Results.Ok(new { message = $"Đã nhúng lại toàn bộ {count} phân đoạn tri thức thành công.", totalChunks = count });
+        }).RequireAuthorization("Permission:AI.KB.MANAGE");
+
         kbGroup.MapPost("/documents", async (CreateDocumentRequest req, IKnowledgeService svc) =>
         {
             if (string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.RawContent))

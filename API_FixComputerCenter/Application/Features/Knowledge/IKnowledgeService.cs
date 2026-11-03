@@ -36,6 +36,7 @@ public interface IKnowledgeService
     Task<List<KnowledgeDocumentDto>> GetDocumentsAsync(CancellationToken ct = default);
     Task<bool> DeleteDocumentAsync(long documentId, CancellationToken ct = default);
     Task<List<RelevantChunkDto>> SearchChunksAsync(string query, int topK = 3, double threshold = 0.72, CancellationToken ct = default);
+    Task<int> ReembedAllAsync(CancellationToken ct = default);
 }
 
 public class KnowledgeService : IKnowledgeService
@@ -75,6 +76,7 @@ public class KnowledgeService : IKnowledgeService
                 ChunkIndex = index++,
                 Content = cText,
                 Embedding = _embedding.VectorToBytes(vector),
+                EmbeddingModel = _embedding.CurrentModelName,
                 EmbeddingDim = vector.Length,
                 CreatedAtUtc = DateTime.UtcNow
             };
@@ -138,10 +140,20 @@ public class KnowledgeService : IKnowledgeService
 
         var scored = new List<RelevantChunkDto>();
 
+        var currentModel = _embedding.CurrentModelName;
+        int currentDim = queryVector.Length;
+
         foreach (var c in chunks)
         {
             if (c.Embedding == null || c.Embedding.Length == 0) continue;
+
+            // Only compare chunks with matching model and dimension
+            if (c.EmbeddingDim.HasValue && c.EmbeddingDim.Value != currentDim) continue;
+            if (!string.IsNullOrEmpty(c.EmbeddingModel) && c.EmbeddingModel != currentModel) continue;
+
             var chunkVector = _embedding.BytesToVector(c.Embedding);
+            if (chunkVector.Length != currentDim) continue;
+
             var sim = _embedding.CosineSimilarity(queryVector, chunkVector);
 
             if (sim >= threshold)
@@ -158,6 +170,44 @@ public class KnowledgeService : IKnowledgeService
         }
 
         return scored.OrderByDescending(s => s.Similarity).Take(topK).ToList();
+    }
+
+    public async Task<int> ReembedAllAsync(CancellationToken ct = default)
+    {
+        var activeDocs = await _db.KnowledgeDocuments
+            .Include(d => d.Chunks)
+            .Where(d => d.Status == "ACTIVE")
+            .ToListAsync(ct);
+
+        int updatedCount = 0;
+        foreach (var doc in activeDocs)
+        {
+            // Remove existing chunks
+            _db.KnowledgeChunks.RemoveRange(doc.Chunks);
+
+            // Re-chunk and re-embed with current model
+            var chunks = ChunkText(doc.RawContent, targetWords: 600, overlapWords: 80);
+            int index = 0;
+            foreach (var cText in chunks)
+            {
+                var vector = await _embedding.GenerateEmbeddingAsync(cText, ct);
+                var chunk = new KnowledgeChunk
+                {
+                    DocumentId = doc.DocumentId,
+                    ChunkIndex = index++,
+                    Content = cText,
+                    Embedding = _embedding.VectorToBytes(vector),
+                    EmbeddingModel = _embedding.CurrentModelName,
+                    EmbeddingDim = vector.Length,
+                    CreatedAtUtc = DateTime.UtcNow
+                };
+                _db.KnowledgeChunks.Add(chunk);
+                updatedCount++;
+            }
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return updatedCount;
     }
 
     private static List<string> ChunkText(string text, int targetWords = 600, int overlapWords = 80)
